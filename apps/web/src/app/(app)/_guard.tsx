@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { optionalOrgContext, type RequestContext } from '@/lib/auth/context';
 import { EmptyState, Panel, ui } from '@/components/ui';
 
@@ -12,16 +12,10 @@ export async function withContext(
   render: (ctx: RequestContext) => ReactNode | Promise<ReactNode>,
 ): Promise<ReactNode> {
   const ctx = await optionalOrgContext();
-  if (!ctx) {
-    return (
-      <Panel>
-        <EmptyState title="No company selected">
-          Sign in and choose a company to continue. If you have just been invited, accept the
-          invitation first. <Link href="/">Back to start</Link>
-        </EmptyState>
-      </Panel>
-    );
-  }
+  // No company yet: send them to create one rather than showing a dead end.
+  // Signing in is handled upstream by middleware, so reaching here without a
+  // context means the user exists but belongs to no organization.
+  if (!ctx) redirect('/onboarding/company');
   return render(ctx);
 }
 

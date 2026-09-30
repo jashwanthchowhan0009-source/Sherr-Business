@@ -76,6 +76,53 @@ export async function createOrganization(input: {
   return { id: row.id };
 }
 
+export interface CreateCompanyInput {
+  clerkOrgId: string;
+  legalName: string;
+  ownerUserId: string;
+  tradeName: string | null;
+  gstin: string | null;
+  pan: string | null;
+  stateCode: string | null;
+  registrationType: string;
+  fyStartMonth: number;
+  booksStartDate: string;
+  accountGroups: unknown;
+  accounts: unknown;
+}
+
+/**
+ * Creates a company and everything it cannot exist without, in one transaction:
+ * the organization, the creator's owner membership, its GSTIN registration, the
+ * seeded chart of accounts and the audit row.
+ *
+ * The chart is passed in from src/lib/accounting/chart-of-accounts.ts rather
+ * than written into the migration, so TypeScript stays the single source of
+ * truth and the tests that assert its structure check the same data the
+ * database receives.
+ */
+export async function createCompany(input: CreateCompanyInput): Promise<{ id: string }> {
+  const rows = await appDb().execute<{ id: string }>(sql`
+    select app_create_company(
+      ${input.clerkOrgId},
+      ${input.legalName},
+      ${uuidSchema.parse(input.ownerUserId)}::uuid,
+      ${input.tradeName},
+      ${input.gstin},
+      ${input.pan},
+      ${input.stateCode},
+      ${input.registrationType},
+      ${input.fyStartMonth},
+      ${input.booksStartDate}::date,
+      ${JSON.stringify(input.accountGroups)}::jsonb,
+      ${JSON.stringify(input.accounts)}::jsonb
+    ) as id
+  `);
+  const row = rows.rows[0];
+  if (!row) throw new Error('app_create_company returned no row');
+  return { id: row.id };
+}
+
 /**
  * Resolves the caller's active membership. Returns null when the user is not a
  * member, the membership is not active, or it has passed `valid_to` — which is

@@ -3,12 +3,18 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Every mutation must go through defineAction(), which is what applies the
- * permission check, the rate limit, the tenant transaction and the audit row.
+ * Every mutation must go through one of the two action factories.
+ *
+ * defineAction applies the permission check, the rate limit, the tenant
+ * transaction and the audit row. defineAccountAction covers the operations that
+ * legitimately run before an organization exists (today, only company
+ * creation): it drops the capability check and the tenant transaction, because
+ * there is no tenant yet, and keeps identity, validation and rate limiting.
  *
  * Relying on reviewers to notice a hand-rolled server action is exactly the kind
  * of control that fails quietly at 6pm on a Friday, so it is asserted here.
  */
+const FACTORIES = ['defineAction', 'defineAccountAction'] as const;
 const SERVER_DIR = join(process.cwd(), 'src', 'server');
 
 function serverActionFiles(): string[] {
@@ -41,10 +47,13 @@ describe('server action guard', () => {
       expect(delegate, `${name} must be a one-line delegate, found: ${body?.trim()}`).not.toBeNull();
 
       const target = delegate![1];
+      const builtBy = FACTORIES.find((factory) =>
+        new RegExp(`const\\s+${target}\\s*=\\s*${factory}\\(`).test(source),
+      );
       expect(
-        new RegExp(`const\\s+${target}\\s*=\\s*defineAction\\(`).test(source),
-        `${name} delegates to ${target}, which is not built by defineAction()`,
-      ).toBe(true);
+        builtBy,
+        `${name} delegates to ${target}, which is not built by ${FACTORIES.join(' or ')}`,
+      ).toBeDefined();
     }
 
     // Nothing else may leave the module.
@@ -56,5 +65,12 @@ describe('server action guard', () => {
     // defineAction supplies `tx`; calling withTenant again would escape the
     // audit binding and open a second transaction.
     expect(source.includes('withTenant('), 'calls withTenant directly').toBe(false);
+  });
+
+  it('keeps defineAccountAction to the operations that genuinely predate an org', () => {
+    // It is the weaker factory: no capability check, no tenant transaction. If
+    // it spreads beyond onboarding, mutations start escaping those guarantees.
+    const users = files.filter((f) => readFileSync(f, 'utf8').includes('defineAccountAction('));
+    expect(users.map((f) => f.split('/').pop())).toEqual(['onboarding.ts']);
   });
 });

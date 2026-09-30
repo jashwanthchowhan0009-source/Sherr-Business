@@ -62,6 +62,51 @@ export async function requireOrgContext(): Promise<RequestContext> {
   };
 }
 
+/**
+ * The caller, resolved as far as it can be without an organization.
+ *
+ * Company creation needs a real, MFA-passed user but by definition has no org
+ * yet, so it cannot use requireOrgContext(). Everything else about the identity
+ * check is identical — including that a missing MFA signal fails closed.
+ */
+export interface AccountContext {
+  userId: string;
+  clerkUserId: string;
+  email: string;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+export async function requireAccountContext(): Promise<AccountContext> {
+  if (!clerkConfigured()) throw unauthenticated();
+
+  const { userId: clerkUserId } = await auth();
+  if (!clerkUserId) throw unauthenticated();
+
+  const user = await currentUser();
+  if (!user) throw unauthenticated();
+  if (!hasMfa(user)) throw mfaRequired();
+
+  const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses[0]?.emailAddress;
+  if (!email) throw unauthenticated();
+
+  const { id } = await ensureUser({
+    clerkUserId,
+    email,
+    fullName: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
+    mfaEnabled: true,
+  });
+
+  const h = await headers();
+  return {
+    userId: id,
+    clerkUserId,
+    email,
+    ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    userAgent: h.get('user-agent'),
+  };
+}
+
 /** Null instead of throwing, for pages that render a sign-in prompt. */
 export async function optionalOrgContext(): Promise<RequestContext | null> {
   try {

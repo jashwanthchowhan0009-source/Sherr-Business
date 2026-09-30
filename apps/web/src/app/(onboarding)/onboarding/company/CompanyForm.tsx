@@ -1,0 +1,227 @@
+'use client';
+
+import { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { useOrganizationList } from '@clerk/nextjs';
+import { createCompany } from '@/server/onboarding';
+import { REGISTRATION_TYPES } from '@/lib/db/schema';
+import { validateGstin } from '@/lib/india/gstin';
+import { ui } from '@/components/ui';
+
+const MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
+const REGISTRATION_LABELS: Record<(typeof REGISTRATION_TYPES)[number], string> = {
+  regular: 'Regular',
+  composition: 'Composition',
+  unregistered: 'Unregistered',
+};
+
+const REGISTRATION_HINTS: Record<(typeof REGISTRATION_TYPES)[number], string> = {
+  regular: 'Charges GST and claims input tax credit.',
+  composition: 'Pays tax at a flat rate and cannot claim input tax credit.',
+  unregistered: 'Not registered under GST. No GSTIN.',
+};
+
+/** 1 April of the financial year the books start in. */
+function defaultBooksStart(): string {
+  const now = new Date();
+  const year = now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${year}-04-01`;
+}
+
+export function CompanyForm() {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const { setActive } = useOrganizationList();
+
+  const [registrationType, setRegistrationType] =
+    useState<(typeof REGISTRATION_TYPES)[number]>('regular');
+  const [gstin, setGstin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+
+  // Derived live, so the checksum gives feedback before the form is submitted
+  // rather than after a round trip.
+  const derived = useMemo(() => {
+    if (registrationType === 'unregistered' || gstin.trim().length === 0) return null;
+    return validateGstin(gstin);
+  }, [gstin, registrationType]);
+
+  const registered = registrationType !== 'unregistered';
+
+  function onSubmit(formData: FormData) {
+    setError(null);
+    setFieldErrors({});
+    start(async () => {
+      const result = await createCompany({
+        legalName: String(formData.get('legalName') ?? ''),
+        tradeName: String(formData.get('tradeName') ?? ''),
+        registrationType,
+        gstin: registered ? String(formData.get('gstin') ?? '') : '',
+        pan: String(formData.get('pan') ?? ''),
+        stateCode: '',
+        fyStartMonth: Number(formData.get('fyStartMonth') ?? 4),
+        booksStartDate: String(formData.get('booksStartDate') ?? ''),
+        baseCurrency: 'INR',
+      });
+
+      if (!result.ok) {
+        setFieldErrors(result.fieldErrors ?? {});
+        setError(result.error);
+        return;
+      }
+
+      // The session carries no organization until one is made active, and
+      // requireOrgContext reads exactly that — so without this the dashboard
+      // would bounce straight back here.
+      if (setActive) {
+        await setActive({ organization: result.data.clerkOrgId });
+      }
+      router.push('/dashboard');
+      router.refresh();
+    });
+  }
+
+  return (
+    <form action={onSubmit}>
+      <div className={ui.formGrid}>
+        <Field
+          name="legalName" label="Registered legal name" required
+          placeholder="Shree Balaji Traders Pvt Ltd"
+          hint="As it appears on your certificate of incorporation."
+          errors={fieldErrors.legalName}
+        />
+        <Field
+          name="tradeName" label="Trade name"
+          placeholder="Balaji Traders"
+          hint="Optional. What customers know you as."
+          errors={fieldErrors.tradeName}
+        />
+      </div>
+
+      <div className={ui.field}>
+        <label className={ui.label} htmlFor="registrationType">GST registration</label>
+        <select
+          className={ui.input}
+          id="registrationType"
+          value={registrationType}
+          onChange={(e) =>
+            setRegistrationType(e.target.value as (typeof REGISTRATION_TYPES)[number])
+          }
+        >
+          {REGISTRATION_TYPES.map((t) => (
+            <option key={t} value={t}>{REGISTRATION_LABELS[t]}</option>
+          ))}
+        </select>
+        <span className={ui.hint}>{REGISTRATION_HINTS[registrationType]}</span>
+      </div>
+
+      {registered ? (
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="gstin">GSTIN</label>
+          <input
+            className={ui.input}
+            id="gstin"
+            name="gstin"
+            value={gstin}
+            onChange={(e) => setGstin(e.target.value.toUpperCase())}
+            placeholder="27AAPFU0939F1ZV"
+            maxLength={15}
+            autoComplete="off"
+            spellCheck={false}
+            style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.04em' }}
+          />
+          {fieldErrors.gstin?.length ? (
+            <span className={ui.error}>{fieldErrors.gstin.join(' ')}</span>
+          ) : derived === null ? (
+            <span className={ui.hint}>
+              Your PAN and state are read from this, so they are not asked for twice.
+            </span>
+          ) : derived.ok ? (
+            <span className={ui.hint} style={{ color: 'var(--sb-verified)' }}>
+              {derived.parts.stateName} · PAN {derived.parts.pan}
+            </span>
+          ) : (
+            <span className={ui.error}>{derived.message}</span>
+          )}
+        </div>
+      ) : (
+        <Field
+          name="pan" label="PAN" placeholder="AAPFU0939F"
+          hint="Ten characters. Asked for directly because there is no GSTIN to read it from."
+          errors={fieldErrors.pan}
+        />
+      )}
+
+      <div className={ui.formGrid}>
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="fyStartMonth">Financial year starts</label>
+          <select className={ui.input} id="fyStartMonth" name="fyStartMonth" defaultValue={4}>
+            {MONTHS.map((m, i) => (
+              <option key={m} value={i + 1}>{m}</option>
+            ))}
+          </select>
+          <span className={ui.hint}>April for almost every Indian company.</span>
+        </div>
+
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="booksStartDate">Books start from</label>
+          <input
+            className={ui.input}
+            id="booksStartDate"
+            name="booksStartDate"
+            type="date"
+            defaultValue={defaultBooksStart()}
+            required
+          />
+          {fieldErrors.booksStartDate?.length ? (
+            <span className={ui.error}>{fieldErrors.booksStartDate.join(' ')}</span>
+          ) : (
+            <span className={ui.hint}>No entry may be dated before this.</span>
+          )}
+        </div>
+      </div>
+
+      <div className={ui.actions}>
+        <button className={ui.button} type="submit" disabled={pending}>
+          {pending ? 'Creating…' : 'Create company'}
+        </button>
+        {error ? <span className={`${ui.status} ${ui.statusErr}`}>{error}</span> : null}
+      </div>
+
+      <p className={ui.hint} style={{ marginTop: 18 }}>
+        A standard chart of accounts is created with the company, grouped for
+        Schedule III. You can add to it afterwards. Amounts are in INR.
+      </p>
+    </form>
+  );
+}
+
+function Field({
+  name, label, errors, hint, placeholder, required,
+}: {
+  name: string; label: string; errors?: string[];
+  hint?: string; placeholder?: string; required?: boolean;
+}) {
+  return (
+    <div className={ui.field}>
+      <label className={ui.label} htmlFor={name}>{label}</label>
+      <input
+        className={ui.input}
+        id={name}
+        name={name}
+        placeholder={placeholder}
+        required={required}
+        autoComplete="off"
+      />
+      {errors?.length ? (
+        <span className={ui.error}>{errors.join(' ')}</span>
+      ) : hint ? (
+        <span className={ui.hint}>{hint}</span>
+      ) : null}
+    </div>
+  );
+}
