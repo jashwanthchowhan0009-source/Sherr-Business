@@ -1,0 +1,84 @@
+.panel {
+  border: 1px solid var(--sb-hairline); border-radius: var(--sb-r-panel);
+  background: var(--sb-lift-1); overflow: hidden;
+}
+.panelHead {
+  padding: 18px 22px 14px; border-bottom: 1px solid var(--sb-hairline-soft);
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.panelTitle { font-size: 17px; font-family: var(--sb-font); font-weight: 300; }
+.panelNote { font-size: 13px; color: var(--sb-text-3); }
+.panelBody { padding: 18px 22px 22px; }
+
+.band {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--sb-text-3); margin: var(--sb-s6) 0 var(--sb-s3);
+  display: flex; align-items: center; gap: 12px;
+}
+.band::after { content: ""; flex: 1; height: 1px; background: var(--sb-hairline-soft); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(248px, 1fr)); gap: var(--sb-s4); }
+.card {
+  background: var(--sb-surface); border-radius: var(--sb-r-card); color: var(--sb-on-surface);
+  display: flex; flex-direction: column; overflow: hidden; min-width: 0; text-align: left;
+}
+.cardHead {
+  background: var(--sb-surface-head); border-bottom: 1px solid var(--sb-surface-rule);
+  height: 42px; display: flex; align-items: center; justify-content: flex-end; padding: 0 14px;
+}
+.cardBody { padding: 16px 20px 20px; }
+.cardLabel { font-size: 15px; color: var(--sb-on-surface-2); margin-bottom: 2px; }
+.cardValue {
+  font-family: var(--sb-font); font-weight: 300; font-size: clamp(34px, 5.6vw, 48px);
+  line-height: 1.08; letter-spacing: -.03em; margin-bottom: 6px; word-break: break-word;
+}
+.cardCaption { font-size: 13.5px; color: var(--sb-on-surface-2); }
+
+.pill {
+  font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 500;
+  border-radius: var(--sb-r-pill); padding: 3px 9px; display: inline-block; white-space: nowrap;
+}
+.pillVerified { color: #1d7a4a; background: rgba(53,201,122,.16); }
+.pillProvisional { color: #8a5500; background: rgba(240,168,60,.22); }
+.pillDraft { color: #3a3a44; border: 1px solid rgba(0,0,0,.22); }
+.pillOnDark { color: var(--sb-text-2); border: 1px solid var(--sb-hairline); }
+
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px; }
+.table th {
+  text-align: left; font-weight: 400; font-size: 11px; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--sb-text-3);
+  padding: 0 14px 10px; border-bottom: 1px solid var(--sb-hairline-soft);
+}
+.table td {
+  padding: 13px 14px; border-bottom: 1px solid var(--sb-hairline-soft); color: var(--sb-text-2);
+  vertical-align: top;
+}
+.table tr:last-child td { border-bottom: none; }
+.table td:first-child { color: var(--sb-text); }
+.right { text-align: right; }
+
+.empty { padding: 34px 22px; text-align: center; }
+.emptyTitle { font-family: var(--sb-font); font-weight: 300; font-size: 19px; margin-bottom: 6px; }
+.emptyBody { font-size: 14px; color: var(--sb-text-2); max-width: 46ch; margin: 0 auto; }
+
+.field { display: grid; gap: 6px; margin-bottom: var(--sb-s4); }
+.label { font-size: 13px; color: var(--sb-text-2); }
+.input {
+  height: 42px; border-radius: 12px; background: var(--sb-lift-2);
+  border: 1px solid var(--sb-hairline); color: var(--sb-text); padding: 0 14px; width: 100%;
+}
+.input:disabled { opacity: .55; cursor: not-allowed; }
+.hint { font-size: 12.5px; color: var(--sb-text-3); }
+.error { font-size: 12.5px; color: var(--sb-critical); }
+.formGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 var(--sb-s4); }
+.actions { display: flex; gap: var(--sb-s3); align-items: center; flex-wrap: wrap; margin-top: var(--sb-s2); }
+.button {
+  height: 42px; padding: 0 20px; border-radius: var(--sb-r-pill);
+  background: var(--sb-surface); color: var(--sb-on-surface); font-weight: 500; font-size: 14px;
+}
+.button:disabled { opacity: .5; cursor: not-allowed; }
+.buttonGhost { background: transparent; color: var(--sb-text); border: 1px solid var(--sb-hairline); }
+.status { font-size: 13px; }
+.statusOk { color: var(--sb-verified); }
+.statusErr { color: var(--sb-critical); }

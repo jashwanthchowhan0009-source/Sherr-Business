@@ -5,7 +5,7 @@ This repository holds two separate products.
 | | What it is | State |
 |---|---|---|
 | **SherrByte** (consumer) | The news / Strings / Dots app. Spring Boot backend. | 22 Java files at the repo root. **Does not build** — no `pom.xml`, no `src/` layout. See `docs/00-REPO-AUDIT.md`, ticket CHORE-0. |
-| **SherrByte Business** | B2B financial & business intelligence platform for Indian companies, accountants and CA firms. | **Specified, not yet built.** Blueprint below. Clickable design prototype in `prototype/`. |
+| **SherrByte Business** | B2B financial & business intelligence platform for Indian companies, accountants and CA firms. | **Phase 1 built** in `apps/web` — tenancy, auth, roles, audit. See [`apps/web/README.md`](apps/web/README.md). Blueprint below; clickable design prototype in `prototype/`. |
 
 ---
 
@@ -45,6 +45,20 @@ Modules 2–5 read only from the **verified accounting layer**. They never read 
 4. Uncertain extractions queue for human approval; they never post silently.
 5. The product never claims to replace a CA, give an audit opinion, or guarantee tax compliance.
 6. Tenant isolation is enforced by the database, not by application code.
+
+### Phase 1 — what exists today
+
+`apps/web` is a Next.js full-stack app (Drizzle, Neon Postgres, Clerk) covering:
+
+- Clerk auth with a hard MFA gate that fails closed, organizations, invitations
+- Four roles — owner, accountant, ca_reviewer, viewer — held in Postgres, with time-boxed external access
+- Postgres row-level security on every table, enforced through a two-role setup so the runtime can never bypass it
+- An append-only `audit_logs` table, written in the same transaction as the change it records
+- Company profile and registrations (GSTIN, PAN, state, financial year)
+- The app shell in the reference design language
+- 58 tests, including tenant isolation run against real Postgres as the application role
+
+Invoices, the ledger, document extraction and reporting are Phase 2.
 
 ### Conventions for anyone writing this code
 

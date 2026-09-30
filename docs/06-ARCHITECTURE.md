@@ -33,22 +33,27 @@
               Dashboard · Excel · PDF · CSV · API · Notifications
 ```
 
-## 2. Stack **[MY CALL — see the contradiction flagged in `docs/00-REPO-AUDIT.md §4`]**
+## 2. Stack **[DECIDED — supersedes the FastAPI recommendation in the source material]**
+
+*The PDF (p.22) proposed Python/FastAPI and the existing repository is Java. In September 2026 the decision was taken to build SherrByte Business as a **Next.js full-stack application**. Server actions replace the separate API service. The document-extraction worker returns in Phase 2 as Inngest jobs. This section records what was built, not what was proposed.*
 
 | Layer | Choice | Why |
 |---|---|---|
-| Frontend | **Next.js + TypeScript + Tailwind** | Your PDF p.22 chose this. Design tokens from `docs/04-DESIGN-SYSTEM.md` compile to Tailwind theme. |
-| Business backend | **Python 3.12 + FastAPI** | Your PDF p.22 chose it; document-AI ecosystem is decisively better here |
-| Database | **PostgreSQL 16** | Transactional integrity, `NUMERIC`, row-level security, `jsonb`, full-text. One database, not a graph DB. **[CONFIRMED — p.23]** |
-| Jobs | **Celery + Redis** | Extraction and sync are long-running and must be retryable **[CONFIRMED — p.23]** |
-| Object storage | **Private S3-compatible, per-tenant prefix, SSE-KMS** | Original documents **[CONFIRMED — p.23]** |
-| AI | **Claude (extraction + drafting), schema-constrained** | Must return JSON validated against a JSON Schema; a failed validation is a failed extraction, never a partial post |
-| Search | **Postgres full-text first**; pgvector only where semantic search earns it **[CONFIRMED — p.23]** |
-| Consumer app | **Unchanged Spring Boot**, separate service, separate database | See `docs/00-REPO-AUDIT.md` |
+| Frontend + backend | **Next.js 15 App Router, TypeScript strict** | One deployable, one language, server actions for mutations |
+| ORM | **Drizzle** | Typed schema, plain SQL migrations kept hand-written |
+| Database | **Neon PostgreSQL** | Transactional integrity, `NUMERIC`/`bigint`, row-level security, `jsonb` |
+| Driver | **`pg` (node-postgres)** | Neon's HTTP driver cannot hold a session, so `SET LOCAL` would not survive to the next statement. One driver for local and production. Requires the Node runtime; middleware never touches the database. |
+| Auth | **Clerk** — identity, MFA, organizations | Role of record stays in `memberships.role`: Clerk custom roles need the B2B add-on in production and cannot express `valid_to` expiry or branch scope |
+| Tenant isolation | **Postgres RLS via a transaction-scoped GUC** | Neon RLS/Authorize has folded into the Neon Data API and reads roles from a JWT; ours live in Postgres. `set_config(..., true)` is portable and testable against local Postgres. |
+| Jobs | **Inngest** *(Phase 2)* | Nothing to schedule in Phase 1; membership expiry is applied at request time |
+| Object storage | **Cloudflare R2** *(Phase 2)* | Nothing uploads files in Phase 1 |
+| Observability | **Sentry** | Inert without a DSN; request bodies, headers and cookies are stripped before send |
+| Tests | **Vitest + Playwright** | Integration tests run against real Postgres as the application role |
+| Consumer app | **Unchanged Spring Boot**, separate service and database | See `docs/00-REPO-AUDIT.md` |
 
-**Hard numeric rule:** money is `NUMERIC(18,2)` in Postgres and `decimal.Decimal` in Python. **Float is banned in the money path** — a lint rule and a CI check enforce this. Quantities are `NUMERIC(18,4)`; rates `NUMERIC(9,4)`. Rounding is half-up, applied once, at a defined point per calculation, and the rounding point is part of the engine's versioned definition.
+**Hard numeric rule:** money is integer **paise** — `bigint` in Postgres, `Decimal`/`bigint` in application code. **Float is banned in the money path**, enforced by `pnpm check:no-float` in CI. Rounding is half-up, applied once, at a point that is part of the engine's versioned definition.
 
----
+**Two database roles, always.** A table's owner bypasses RLS silently. Migrations run as the owner (`DATABASE_URL_OWNER`); the application connects as `sherrbyte_app`, which owns nothing and has no `BYPASSRLS`. Every tenant table also sets `FORCE ROW LEVEL SECURITY`. See `apps/web/README.md`.
 
 ## 3. Data model
 

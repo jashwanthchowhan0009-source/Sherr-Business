@@ -1,0 +1,157 @@
+# SherrByte Business — Phase 1
+
+Tenancy, authentication, roles and the audit trail. **No invoices, no ledger** — those are Phase 2.
+
+This phase exists to get the irreversible decisions right before there is data to migrate: how tenants are isolated, and how changes are recorded.
+
+---
+
+## Quick start
+
+```bash
+pnpm install
+pnpm db:up            # starts local Postgres, creates the database and owner role
+                      # copy the two connection strings it prints into .env.local
+pnpm db:bootstrap     # creates and verifies the sherrbyte_app runtime role
+pnpm db:migrate       # applies drizzle/*.sql as the owner
+pnpm db:seed          # two organizations of clearly-labelled mock data
+pnpm test             # 58 tests, including tenant isolation against real Postgres
+pnpm dev
+```
+
+The app boots without Clerk keys so the database layer and the shell can be worked on. Protected routes are **refused**, not opened — an unconfigured auth provider never means "allow".
+
+---
+
+## Why two database roles
+
+This is the part worth reading before changing anything.
+
+A table's owner **bypasses every RLS policy**, and the failure is silent: queries keep working and simply return other tenants' rows. Neon's default role owns everything you create with it, so connecting the app as that role would give you RLS that isolates nothing.
+
+So there are two roles and two connection strings:
+
+| Variable | Role | Used by |
+|---|---|---|
+| `DATABASE_URL_OWNER` | owns the tables | `db:migrate`, `db:seed` only |
+| `DATABASE_URL` | `sherrbyte_app` — owns nothing, no `BYPASSRLS` | the application, always |
+
+`pnpm db:bootstrap` **verifies** rather than repairs: it fails loudly if the runtime role has `SUPERUSER`, `BYPASSRLS`, or owns any table. `tests/integration/rls-privileges.test.ts` asserts the same properties, so a misconfigured production database fails CI rather than leaking.
+
+Every tenant table also carries `FORCE ROW LEVEL SECURITY`, which closes the owner's exemption too. The `SECURITY DEFINER` bootstrap functions still work because the migration grants the owner an explicitly scoped `TO <owner>` policy — the application role is a different role and can never satisfy it.
+
+## How tenant scoping works
+
+`withTenant()` in `src/lib/db/tenant.ts` is the only supported route to tenant data:
+
+```ts
+await withTenant({ orgId, userId }, async (tx) => {
+  return tx.select().from(memberships);   // policies applied automatically
+});
+```
+
+It opens a transaction and sets the tenant with `set_config('app.current_org_id', $1, true)`. The `true` makes the setting **transaction-local**, so it is discarded on commit or rollback and the pooled connection goes back clean. Plain `SET` would leak the tenant to whoever picks up that connection next — the most common way multi-tenant isolation breaks in production.
+
+Policies read `current_setting('app.current_org_id', true)`. The second `true` means "missing is fine, return NULL", so a query with **no** tenant context matches nothing and returns **zero rows rather than all rows**. There is a test for exactly that.
+
+`src/lib/db/pool.ts` is not importable outside `src/lib/db/` — enforced by ESLint and by `tests/unit/db-encapsulation.test.ts`.
+
+## How permission checks can't be forgotten
+
+Every mutation is built by `defineAction()` (`src/lib/auth/action.ts`), which resolves the caller, checks the capability, rate-limits, opens the tenant transaction, and hands the handler an `audit()` bound to that same transaction:
+
+```ts
+const updateCompanyProfileAction = defineAction({
+  name: 'company.profile.updated',
+  capability: 'company:update',
+  input: companyProfileSchema,
+  handler: async ({ tx, orgId, input, audit }) => { /* … */ },
+});
+
+// 'use server' modules may only export async functions, so each action is
+// exposed through a one-line delegate.
+export async function updateCompanyProfile(input: unknown) {
+  return updateCompanyProfileAction(input);
+}
+```
+
+Because `audit()` writes inside the caller's transaction, a change and its audit row commit or roll back together. There is no way to change data without leaving a trace, and none to leave a trace for a change that did not happen.
+
+`tests/unit/action-guard.test.ts` fails if any export from a `'use server'` module is anything other than a one-line delegate to a `defineAction` handler.
+
+## Roles
+
+Clerk handles identity, MFA and organization membership. **Role is ours**, in `memberships.role` — Clerk's custom roles need the B2B add-on in production, and more importantly cannot express `valid_to` expiry or branch scope.
+
+| Capability | Owner | Accountant | CA reviewer | Viewer |
+|---|:-:|:-:|:-:|:-:|
+| Read company, registrations, members | ✓ | ✓ | ✓ | ✓ |
+| Update company, registrations | ✓ | ✓ | — | — |
+| Invite, change role, remove | ✓ | — | — | — |
+| Read audit history | ✓ | — | ✓ | — |
+
+An accountant maintains the company's data but not who has access to it. A CA reviewer is read-only yet **can** read the audit log — a reviewer who cannot see who changed what cannot review.
+
+External access is time-boxed: `memberships.valid_to` is applied by `app_resolve_membership()` at request time, so a lapsed membership is refused on the next request rather than on the next cron run.
+
+## Money
+
+No money columns exist yet. `src/lib/money.ts` fixes the convention now so Phase 2 cannot invent a second one: a branded `Paise` type over `bigint`, Indian lakh/crore formatting, and `paise()` in `src/lib/db/columns.ts` for the eventual columns.
+
+`pnpm check:no-float` fails CI on `real`, `double precision`, `numeric(…)` or `decimal(…)` in any migration. Rounding is done in bigint arithmetic, not by converting to a Number — `(1.45).toFixed(1)` is `"1.4"` in IEEE-754, which would render ₹1.45Cr as ₹1.4Cr.
+
+## Clerk configuration
+
+1. Create the application and enable **Organizations**.
+2. **User & Authentication → Multi-factor**: enable **Authenticator app (TOTP)** and **Backup codes**.
+3. **Sessions → Customize session token**, add:
+   ```json
+   { "mfa": "{{user.two_factor_enabled}}" }
+   ```
+   `src/middleware.ts` reads this claim. If it is missing or malformed the check returns `false`, so a misconfigured dashboard **locks users out** rather than letting them past the gate. `requireOrgContext()` re-checks server-side regardless, because a route-matcher mistake must not become an authentication bypass.
+4. Copy the publishable and secret keys into `.env.local`.
+
+## Deploying to Neon + Vercel
+
+```bash
+# Once per database, with DATABASE_URL_OWNER pointed at Neon:
+APP_DB_PASSWORD='<strong password>' pnpm db:bootstrap
+pnpm db:migrate
+```
+
+Set `DATABASE_URL` (the `sherrbyte_app` connection string), `DATABASE_URL_OWNER`, and the Clerk keys in Vercel. **Do not seed production** — `db:seed` refuses unless `ALLOW_PRODUCTION_SEED` is set.
+
+Server actions and route handlers run on the Node runtime because `pg` cannot run on Edge. Middleware is Edge and deliberately never touches the database.
+
+## Tests
+
+```bash
+pnpm test          # unit + integration, against real local Postgres
+pnpm test:e2e      # Playwright; SKIPS without Clerk test credentials, never passes vacuously
+```
+
+| Suite | What it proves |
+|---|---|
+| `tenant-isolation` | Table-driven over the whole schema: org A sees, and can write, none of org B. A new table without a policy fails automatically. |
+| `rls-privileges` | The runtime role is not the owner, has no `BYPASSRLS`, owns nothing, and cannot create tables. |
+| `audit-append-only` | `UPDATE` and `DELETE` on `audit_logs` are denied at the privilege level. |
+| `membership-expiry` | Expired, unstarted and suspended memberships resolve to no access. |
+| `permissions` | Full role × capability matrix. |
+| `action-guard` | Every server action goes through `defineAction()`. |
+| `db-encapsulation` | Nothing imports the raw pool or reaches the owner connection from a page. |
+| `money` | Paise round-trip exactly; fractional input is refused, not rounded. |
+
+## Layout
+
+```
+drizzle/           hand-written SQL migrations — tables, policies, grants, functions
+scripts/           local-db · bootstrap-roles · migrate · seed · check-no-float
+src/lib/db/        schema · tenant (withTenant) · pool (internal) · owner (migrations only)
+src/lib/auth/      permissions · context · action factory
+src/lib/audit/     transaction-bound audit writer
+src/server/        server actions and read queries
+src/app/(app)/     shell: dashboard · people · data, plus Phase 2 placeholders
+src/components/    shell (dock, top bar) and UI primitives
+```
+
+Migrations are hand-written rather than generated: the RLS policies, grants and `SECURITY DEFINER` functions are the substance of this schema, not something a generator should be guessing at. An applied migration is checksummed — editing one fails the next run and tells you to add a new file instead.

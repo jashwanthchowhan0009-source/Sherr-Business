@@ -130,27 +130,19 @@ Taxation (Phase 2), financial statements (Phase 2), profit analysis (Phase 3), d
 │   │       └── controller/   FeedController
 │   │   └── src/main/resources/application.yml   (NEW — externalised secrets)
 │   │
-│   ├── business-api/               ← NEW: SherrByte Business (Python/FastAPI)
-│   │   ├── alembic/                    migrations
-│   │   └── sherrbyte/
-│   │       ├── tenancy/                orgs, memberships, RLS policies
-│   │       ├── ingestion/              connectors: tally · zoho · email · drive · upload
-│   │       ├── extraction/             classify · extract · schemas · confidence · hints
-│   │       ├── ledger/                 transactions · journal · periods · invariants
-│   │       ├── recon/                  cascade · three_way · bank · itc_2b
-│   │       ├── engines/                accounting · gst · tds · statements · analysis
-│   │       │                           ↑ pure, versioned, no I/O
-│   │       ├── metrics/                registry.py ← the single source of truth
-│   │       ├── reporting/              excel · pdf · csv · packs
-│   │       ├── api/                    FastAPI routers
-│   │       └── audit/                  append-only log
-│   │
-│   └── business-web/               ← NEW: Next.js + TS + Tailwind
-│       ├── design/tokens.ts            from docs/04-DESIGN-SYSTEM.md
-│       ├── components/                 DataCard · Dock · SideToggle · DropPanel ·
-│       │                               TypeChip · FolderTile · StatusPill ·
-│       │                               ExceptionRow · TraceSheet · CommandBar
-│       └── app/                        routes exactly per docs/05-INFORMATION-ARCHITECTURE.md
+│   └── web/                        ← SherrByte Business (Next.js full-stack)  ✅ Phase 1 shipped
+│       ├── drizzle/                    hand-written SQL: tables, RLS policies, grants
+│       ├── scripts/                    local-db · bootstrap-roles · migrate · seed · check-no-float
+│       └── src/
+│           ├── lib/db/                 schema · tenant (withTenant) · pool · owner · columns
+│           ├── lib/auth/               permissions · context · action factory
+│           ├── lib/audit/              transaction-bound audit writer
+│           ├── lib/money.ts            branded Paise type (integer paise, no floats)
+│           ├── server/                 server actions + read queries
+│           │                           Phase 2 adds: ingestion · extraction · ledger ·
+│           │                           recon · engines · metrics registry · reporting
+│           ├── app/(app)/              shell per docs/05-INFORMATION-ARCHITECTURE.md
+│           └── components/             shell (dock, top bar) + UI primitives
 │
 ├── prototype/                      ← clickable design prototype  ✅ shipped this sprint
 └── infra/                          ← docker-compose, migrations, CI
@@ -160,8 +152,8 @@ Taxation (Phase 2), financial statements (Phase 2), profit analysis (Phase 3), d
 
 | # | Ticket | Files | Done when |
 |---|---|---|---|
-| **CHORE-0** | Make the consumer app buildable again | Move the 22 root `.java` files into `apps/consumer-api/src/main/java/com/sherbyte/**` per their own line-1 path comments; add `pom.xml` (Spring Boot 3, JPA, Security, JJWT, Redis, Rome, Lombok); add `application.yml` reading `app.jwt.secret`, `app.newsapi.key`, `app.gnews.key`, `app.gemini.key`, `app.gemini.model` from env | `mvn -q package` succeeds; `/health` returns `{"status":"ok"}` |
-| **SB-1** | Postgres schema + RLS | `apps/business-api/alembic/versions/0001_*` — §3 of `docs/06-ARCHITECTURE.md` | **AT-SEC-1** green for every table |
+| **CHORE-0** | Make the consumer app buildable again *(still outstanding)* | Move the 22 root `.java` files into `apps/consumer-api/src/main/java/com/sherbyte/**` per their own line-1 path comments; add `pom.xml` (Spring Boot 3, JPA, Security, JJWT, Redis, Rome, Lombok); add `application.yml` reading `app.jwt.secret`, `app.newsapi.key`, `app.gnews.key`, `app.gemini.key`, `app.gemini.model` from env | `mvn -q package` succeeds; `/health` returns `{"status":"ok"}` |
+| **SB-1** ✅ | Postgres schema + RLS | `apps/business-api/alembic/versions/0001_*` — §3 of `docs/06-ARCHITECTURE.md` | **AT-SEC-1** green for every table |
 | **SB-2** | Ledger core + double-entry invariant | `sherrbyte/ledger/` + a deferred constraint trigger | **AT-LED-1/2/3/4** green |
 | **SB-3** | Document ingestion + storage + dedupe | `sherrbyte/ingestion/` | **AT-EXT-3** green |
 | **SB-4** | Extraction pipeline + AI Document Inbox | `sherrbyte/extraction/`, `business-web/app/input/inbox` | **AT-EXT-1/2/4/5** green |
