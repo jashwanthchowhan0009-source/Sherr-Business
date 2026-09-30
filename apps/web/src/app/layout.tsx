@@ -22,7 +22,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>{children}</body>
     </html>
   );
+
   // Without Clerk keys the provider throws at render. The app still boots so the
   // database layer and the shell can be worked on; protected routes stay closed.
-  return clerkConfigured() ? <ClerkProvider>{body}</ClerkProvider> : body;
+  if (!clerkConfigured()) return body;
+
+  // Where Clerk sends someone already signed in who lands on /sign-in or
+  // /sign-up. Left unset these default to "/", so the console reported
+  // "<SignIn/> cannot render when a user is already signed in ... redirecting to
+  // the afterSignIn URL" and the visitor was bounced back to the marketing page
+  // that had just invited them to sign in. /dashboard sits behind the MFA gate,
+  // so an un-enrolled user still stops at /onboarding/mfa rather than slipping in.
+  return (
+    <ClerkProvider signInFallbackRedirectUrl="/dashboard" signUpFallbackRedirectUrl="/dashboard">
+      {body}
+    </ClerkProvider>
+  );
 }
