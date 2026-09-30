@@ -57,8 +57,20 @@ describe('content security policy', () => {
     expect(build()['frame-src']).toContain('https://challenges.cloudflare.com');
   });
 
-  it('allows the Turnstile script', () => {
+  it('allows Turnstile to be fetched and contacted, not just framed', () => {
+    // Turnstile loads its script and then calls home; blocking either one
+    // leaves the challenge unsolved and sign-up unsubmittable.
     expect(build()['script-src']).toContain('https://challenges.cloudflare.com');
+    expect(build()['connect-src']).toContain('https://challenges.cloudflare.com');
+  });
+
+  it('still reaches Clerk on every host-bearing directive without a derived host', () => {
+    // The wildcards are the safety net for a key this code cannot parse. If
+    // derivation ever returns null, Clerk must still be reachable.
+    const directives = build({ fapiHost: null });
+    for (const name of ['script-src', 'connect-src', 'frame-src']) {
+      expect(directives[name], name).toContain('https://*.clerk.accounts.dev');
+    }
   });
 
   it("allows the instance's own Clerk API host", () => {

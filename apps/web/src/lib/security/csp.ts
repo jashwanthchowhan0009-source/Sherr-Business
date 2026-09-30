@@ -1,16 +1,32 @@
 /**
- * Content-Security-Policy construction.
+ * The app's Content-Security-Policy.
  *
- * Pure and testable on purpose: this policy is the difference between a working
- * sign-up and a button that spins forever, and a CSP bug is invisible
- * server-side — nothing throws, nothing is logged, the browser just refuses a
- * request. tests/unit/csp.test.ts is the only place it gets checked.
+ * Kept out of middleware.ts so it can be unit-tested without loading Clerk's
+ * edge runtime; middleware.ts owns the nonce and the response wiring.
+ *
+ * Pure on purpose: a missing CSP source is invisible server-side. Nothing
+ * throws, nothing is logged, the deployment reports 200, and the only symptom
+ * is a browser quietly refusing a subresource. tests/unit/csp.test.ts is the
+ * only place this gets checked.
  */
 
-/** Cloudflare Turnstile, which Clerk uses for bot protection on sign-up. */
+/**
+ * Clerk's bot sign-up protection renders a Cloudflare Turnstile widget inside a
+ * challenges.cloudflare.com iframe. Omit this host and the widget is blocked,
+ * Clerk shows "The CAPTCHA failed to load", and the Continue button spins
+ * forever because sign-up can never be submitted.
+ *
+ * frame-src is the directive that actually matters: 'strict-dynamic' governs
+ * script loading only, so it cannot rescue a blocked iframe.
+ */
 const TURNSTILE = 'https://challenges.cloudflare.com';
 
-/** Clerk's own hosts, per its published CSP defaults. */
+/**
+ * Clerk-managed hosts, as a fallback. The exact Frontend API host is derived
+ * from the publishable key below; these wildcards keep the policy working if
+ * that derivation ever returns null, and cover Clerk's shared domains.
+ */
+const CLERK_WILDCARDS = ['https://*.clerk.accounts.dev', 'https://*.clerk.com'];
 const CLERK_IMG = 'https://img.clerk.com';
 const CLERK_TELEMETRY = ['https://clerk-telemetry.com', 'https://*.clerk-telemetry.com'];
 
@@ -18,9 +34,11 @@ const CLERK_TELEMETRY = ['https://clerk-telemetry.com', 'https://*.clerk-telemet
  * Derives the Clerk Frontend API host from the publishable key.
  *
  * The key is `pk_(test|live)_<base64 of "host$">`, so the instance's own API
- * host travels with the key. Hardcoding a guess instead is how this policy
- * broke: it named a domain that did not exist, and every Clerk request from the
- * deployed origin was refused.
+ * host travels with the key. An earlier version of this policy hardcoded a
+ * guessed domain instead; a guessed host is worse than none, because the policy
+ * looks configured while naming somewhere that does not exist. Deriving it also
+ * covers a custom production Frontend API domain, which the wildcards above
+ * would miss.
  *
  * Returns null for a malformed or absent key; callers then omit the host rather
  * than emitting a broken source expression.
@@ -40,7 +58,7 @@ export function frontendApiHost(publishableKey: string | undefined): string | nu
 export interface CspOptions {
   nonce: string;
   isDev: boolean;
-  /** Clerk Frontend API host, e.g. "quiet-lion-42.clerk.accounts.dev". */
+  /** Clerk Frontend API host, e.g. "infinite-ladybug-9854.clerk.accounts.dev". */
   fapiHost: string | null;
   sentryEnabled: boolean;
 }
@@ -51,32 +69,31 @@ export function contentSecurityPolicy({
   fapiHost,
   sentryEnabled,
 }: CspOptions): string {
-  const fapi = fapiHost ? `https://${fapiHost}` : '';
+  const clerkHosts = [...CLERK_WILDCARDS, fapiHost ? `https://${fapiHost}` : ''].filter(Boolean);
 
-  // Clerk loads its SDK and the Turnstile challenge as scripts. 'strict-dynamic'
-  // covers scripts injected by an already-trusted script, but naming the hosts
-  // keeps the policy working in browsers that do not support it.
   const scriptSrc = [
-    `'self'`,
+    "'self'",
     `'nonce-${nonce}'`,
-    `'strict-dynamic'`,
+    // Lets the nonced Next bootstrap load its own chunks, and Clerk load
+    // Turnstile. Browsers honouring 'strict-dynamic' ignore the host list
+    // below; it is kept for those that do not.
+    "'strict-dynamic'",
     TURNSTILE,
-    fapi,
-    isDev ? `'unsafe-eval'` : '',
+    ...clerkHosts,
+    isDev ? "'unsafe-eval'" : '',
   ];
 
-  // Turnstile renders inside an iframe. Omitting it here is precisely what made
-  // sign-up hang: the challenge frame was refused, so Clerk never received a
-  // token and the submit button spun with no error to show.
-  const frameSrc = [`'self'`, TURNSTILE, fapi];
-
+  // Turnstile fetches its challenge as well as framing it.
   const connectSrc = [
-    `'self'`,
-    fapi,
+    "'self'",
+    TURNSTILE,
+    ...clerkHosts,
     ...CLERK_TELEMETRY,
     CLERK_IMG,
     sentryEnabled ? 'https://*.ingest.sentry.io' : '',
   ];
+
+  const frameSrc = ["'self'", TURNSTILE, ...clerkHosts];
 
   return [
     `default-src 'self'`,
