@@ -1,0 +1,491 @@
+<title>SherrByte Business</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap">
+<style>
+/* Layout: black canvas, fixed top command bar, scrolling stage, floating bottom dock + side toggle.
+   Single-theme by design — the product's identity is a lit black room. */
+:root{
+  --bg:#000; --lift1:#0d0d10; --lift2:#17171b; --lift3:#202026;
+  --hair:rgba(255,255,255,.10); --hair2:rgba(255,255,255,.06);
+  --surface:#e6e6e6; --surface-head:#efefef; --surface-rule:rgba(0,0,0,.20);
+  --on-surface:#0a0a0a; --on-surface-2:#585860;
+  --text:#f4f4f5; --text2:#9a9aa2; --text3:#5e5e67;
+  --accent:#3a3aff; --accent-soft:rgba(58,58,255,.30);
+  --ok:#35c97a; --warn:#f0a83c; --crit:#ff5b5f; --stale:#6b6b74;
+  --fd:"Outfit",ui-sans-serif,system-ui,sans-serif;
+  --fb:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+  --r-card:22px; --r-panel:28px; --r-pill:999px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--fb);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3{font-family:var(--fd);font-weight:300;margin:0;text-wrap:balance}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ── top chrome ────────────────────────────────────────── */
+.top{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;gap:12px;align-items:center;
+  padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top,0px));
+  background:linear-gradient(180deg,#0a0a0c 0%,rgba(10,10,12,.92) 70%,rgba(10,10,12,0) 100%)}
+.mark{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:var(--lift3);
+  border:1px solid var(--hair);display:grid;place-items:center;font-family:var(--fd);font-weight:500;
+  font-size:17px;color:#e8a33c;letter-spacing:-.02em}
+.cmd{flex:1;min-width:0;height:42px;border-radius:var(--r-pill);background:var(--surface);
+  color:var(--on-surface-2);display:flex;align-items:center;gap:10px;padding:0 18px;font-size:14px;
+  text-align:left;transition:box-shadow .18s}
+.cmd:hover{box-shadow:0 0 0 3px rgba(255,255,255,.10)}
+.cmd .k{margin-left:auto;font-size:11px;letter-spacing:.06em;color:#8a8a92;border:1px solid rgba(0,0,0,.18);
+  border-radius:5px;padding:2px 6px;flex:0 0 auto}
+.cmdtxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── stage ─────────────────────────────────────────────── */
+.stage{position:relative;min-height:100%;padding:0 16px 210px;max-width:1120px;margin:0 auto;
+  padding-top:calc(76px + env(safe-area-inset-top,0px))}
+.glyph{display:grid;place-items:center;height:64px;margin:6px 0 2px}
+.glyph svg{width:44px;height:44px;opacity:.95}
+.head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:0 0 6px}
+.head h1{font-size:clamp(28px,5vw,40px);letter-spacing:-.02em}
+.demo{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#0a0a0a;background:var(--surface);
+  border-radius:var(--r-pill);padding:4px 11px;font-weight:500}
+.sub{color:var(--text2);font-size:14px;margin:0 0 22px}
+
+/* trust ribbon */
+.ribbon{display:flex;flex-wrap:wrap;gap:6px 0;align-items:center;font-size:13px;color:var(--text2);
+  border:1px solid var(--hair);border-radius:var(--r-pill);padding:9px 18px;margin:0 0 26px;background:var(--lift1)}
+.ribbon b{color:var(--text);font-weight:400}
+.ribbon .sep{color:var(--text3);padding:0 10px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px;vertical-align:1px}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.crit{background:var(--crit)}
+
+/* ── data cards (light on black — inverted, per reference) ─ */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:16px;margin:0 0 22px}
+.card{background:var(--surface);border-radius:var(--r-card);color:var(--on-surface);text-align:left;
+  display:flex;flex-direction:column;overflow:hidden;transition:transform .16s,box-shadow .16s;min-width:0}
+.card:hover{transform:translateY(-2px);box-shadow:0 10px 34px rgba(0,0,0,.5)}
+.card .ch{background:var(--surface-head);border-bottom:1px solid var(--surface-rule);height:42px;
+  display:flex;align-items:center;justify-content:flex-end;padding:0 14px}
+.card .cb{padding:16px 20px 20px}
+.card .lab{font-size:15px;color:var(--on-surface-2);margin:0 0 2px}
+.card .val{font-family:var(--fd);font-weight:300;font-size:clamp(38px,6.4vw,54px);line-height:1.08;
+  letter-spacing:-.03em;margin:0 0 6px;word-break:break-word}
+.card .val.prov{font-weight:200;color:#2a2a30}
+.card .cap{font-size:13.5px;color:var(--on-surface-2)}
+.pill{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:500;border-radius:var(--r-pill);padding:3px 9px}
+.pill.verified{color:#1d7a4a;background:rgba(53,201,122,.16)}
+.pill.provisional,.pill.incomplete{color:#8a5500;background:rgba(240,168,60,.22)}
+.pill.draft{color:#3a3a44;border:1px solid rgba(0,0,0,.22)}
+.pill.stale{color:#55555e;background:rgba(0,0,0,.08)}
+
+/* band label */
+.band{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin:26px 0 12px;
+  display:flex;align-items:center;gap:12px}
+.band::after{content:"";flex:1;height:1px;background:var(--hair2)}
+
+/* ── attention panel ───────────────────────────────────── */
+.panel{border:1px solid var(--hair);border-radius:var(--r-panel);background:var(--lift1);overflow:hidden}
+.panel>h3{font-size:17px;padding:18px 22px 14px;border-bottom:1px solid var(--hair2)}
+.exc{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--hair2);
+  width:100%;text-align:left;transition:background .14s}
+.exc:last-child{border-bottom:none}
+.exc:hover{background:var(--lift2)}
+.exc .n{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  font-size:12.5px;font-weight:500;background:var(--lift3);color:var(--text)}
+.exc .n.crit{background:rgba(255,91,95,.20);color:#ff9a9d}
+.exc .n.warn{background:rgba(240,168,60,.18);color:#f3c078}
+.exc .t{flex:1;min-width:0}
+.exc .t b{font-weight:400;display:block}
+.exc .t span{font-size:13px;color:var(--text2)}
+.exc .amt{flex:0 0 auto;font-family:var(--fd);font-size:16px;color:var(--text);font-weight:300}
+
+/* ── input screen ──────────────────────────────────────── */
+.drop{border:2px solid var(--accent);border-radius:var(--r-panel);background:var(--lift1);
+  box-shadow:0 0 46px var(--accent-soft);padding:26px;margin:0 0 20px}
+.target{border:2px dashed rgba(255,255,255,.55);border-radius:26px;min-height:190px;display:grid;
+  place-items:center;text-align:center;padding:24px}
+.target .t1{font-family:var(--fd);font-size:clamp(26px,4.4vw,34px);font-weight:300;display:flex;align-items:center;gap:14px}
+.target .t2{font-size:13.5px;color:var(--text2);margin-top:8px}
+.itype{margin:20px auto 0;max-width:430px;height:44px;border-radius:var(--r-pill);background:var(--lift3);
+  border:1px solid var(--hair);color:var(--text);padding:0 18px;width:100%;font-family:var(--fb);font-size:14px}
+.itype::placeholder{color:var(--text3)}
+.chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin:18px 0 0}
+.chip{border:1px solid var(--hair);border-radius:var(--r-pill);padding:8px 15px;font-size:13.5px;
+  color:var(--text2);transition:.14s}
+.chip:hover{border-color:rgba(255,255,255,.3);color:var(--text)}
+.chip[aria-pressed="true"]{background:var(--surface);color:var(--on-surface);border-color:var(--surface)}
+
+/* ── folder grid ───────────────────────────────────────── */
+.folders{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:22px 18px;margin:8px 0 0}
+.folder{display:flex;flex-direction:column;align-items:center;gap:12px;padding:14px 8px;border-radius:18px;transition:.16s}
+.folder:hover{background:var(--lift1)}
+.folder .fi{position:relative;width:118px;height:88px}
+.folder svg{width:100%;height:100%}
+.folder .badge{position:absolute;top:16px;right:6px;background:var(--surface);color:var(--on-surface);
+  border-radius:var(--r-pill);font-size:11px;font-weight:500;padding:2px 8px}
+.folder .fl{font-family:var(--fd);font-weight:300;font-size:19px;text-align:center}
+.folder .fs{font-size:12.5px;color:var(--text3);text-align:center;margin-top:-6px}
+
+/* ── generic list / table ──────────────────────────────── */
+.rows{width:100%;border-collapse:collapse;font-size:14px}
+.rows th{text-align:left;font-weight:400;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--text3);padding:0 14px 10px;border-bottom:1px solid var(--hair2)}
+.rows td{padding:13px 14px;border-bottom:1px solid var(--hair2);color:var(--text2)}
+.rows tr:last-child td{border-bottom:none}
+.rows td:first-child{color:var(--text)}
+.rows .r{text-align:right}
+.scroll{overflow-x:auto;padding:18px 8px 6px}
+.ok-t{color:var(--ok)} .warn-t{color:var(--warn)} .crit-t{color:var(--crit)} .stale-t{color:var(--stale)}
+
+/* ── stages diagram ────────────────────────────────────── */
+.pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin:0 0 24px}
+.st{border:1px solid var(--hair);border-radius:16px;padding:14px;background:var(--lift1);text-align:left}
+.st .sn{font-family:var(--fd);font-size:30px;font-weight:300;line-height:1}
+.st .sl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--text3);margin-top:6px}
+.st.hot{border-color:rgba(240,168,60,.5)} .st.hot .sn{color:var(--warn)}
+
+/* ── trace drawer ──────────────────────────────────────── */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.66);z-index:60;opacity:0;pointer-events:none;transition:opacity .2s}
+.scrim.on{opacity:1;pointer-events:auto}
+.trace{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);z-index:61;background:var(--lift1);
+  border-left:1px solid var(--hair);transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;overflow:hidden}
+.trace.on{transform:none}
+.trace .th{padding:20px 22px 16px;border-bottom:1px solid var(--hair2);display:flex;gap:14px;align-items:flex-start;
+  padding-top:calc(20px + env(safe-area-inset-top,0px))}
+.trace .th h3{font-size:20px;flex:1;min-width:0}
+.trace .tb{overflow-y:auto;padding:0 22px 28px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+.trace .bigv{font-family:var(--fd);font-weight:300;font-size:46px;letter-spacing:-.03em;margin:18px 0 4px}
+.meta{display:grid;grid-template-columns:118px 1fr;gap:8px 14px;font-size:13px;margin:16px 0 22px}
+.meta dt{color:var(--text3)} .meta dd{margin:0;color:var(--text2)}
+.meta dd code{font-family:ui-monospace,monospace;font-size:12px;color:var(--text2)}
+.note{border-left:2px solid var(--warn);padding:10px 14px;background:rgba(240,168,60,.07);font-size:13.5px;
+  color:#e8c491;border-radius:0 8px 8px 0;margin:0 0 20px}
+.tsec{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--text3);margin:22px 0 10px}
+.tline{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--hair2);font-size:14px}
+.tline .d{flex:1;min-width:0}
+.tline .d b{font-weight:400;display:block}
+.tline .d span{font-size:12.5px;color:var(--text3)}
+.tline .v{font-family:var(--fd);font-weight:300;white-space:nowrap}
+.sumline{display:flex;justify-content:space-between;padding:14px 0 0;font-size:14px;color:var(--ok)}
+.docview{border:1px solid var(--hair);border-radius:14px;background:var(--lift2);padding:16px;margin-top:12px;font-size:13px}
+.docview .dl{display:flex;justify-content:space-between;padding:5px 0;color:var(--text2)}
+.docview .hl{background:rgba(58,58,255,.28);outline:1px solid var(--accent);border-radius:4px;padding:2px 7px;color:var(--text)}
+.close{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--lift3);display:grid;place-items:center;font-size:17px;color:var(--text2)}
+.close:hover{color:var(--text)}
+
+/* ── bottom dock ───────────────────────────────────────── */
+.dockwrap{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;justify-items:center;gap:12px;
+  padding:0 16px 18px;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px));pointer-events:none}
+.dockwrap::before{content:"";position:absolute;bottom:-40px;left:50%;transform:translateX(-50%);
+  width:min(560px,92vw);height:230px;background:radial-gradient(ellipse at center,rgba(255,255,255,.13),transparent 68%);
+  pointer-events:none}
+.dock{position:relative;pointer-events:auto;display:flex;background:rgba(46,46,52,.86);backdrop-filter:blur(14px);
+  border-radius:var(--r-pill);padding:5px;gap:2px;border:1px solid var(--hair)}
+.seg{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 22px;border-radius:var(--r-pill);
+  font-size:12px;color:#c9c9d0;transition:.18s;min-width:84px}
+.seg svg{width:22px;height:22px}
+.seg[aria-selected="true"]{background:var(--surface);color:var(--on-surface);box-shadow:0 0 22px rgba(255,255,255,.3)}
+.sidetoggle{position:relative;pointer-events:auto;display:flex;gap:6px;background:rgba(46,46,52,.8);
+  border-radius:var(--r-pill);padding:5px 7px;border:1px solid var(--hair)}
+.sd{width:11px;height:11px;border-radius:50%;background:#55555e;transition:.18s}
+.sd[aria-selected="true"]{background:var(--surface)}
+
+@media (max-width:640px){
+  .stage{padding-bottom:230px}
+  .seg{padding:9px 14px;min-width:70px;font-size:11px}
+  .meta{grid-template-columns:96px 1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="mark" aria-hidden="true">S</div>
+  <button class="cmd" onclick="alert0()"><span class="cmdtxt">Search invoices, customers, reports — or type an action</span><span class="k">⌘K</span></button>
+</header>
+
+<main class="stage" id="stage"></main>
+
+<div class="scrim" id="scrim" onclick="closeTrace()"></div>
+<aside class="trace" id="trace" role="dialog" aria-modal="true" aria-label="Number trace"></aside>
+
+<div class="dockwrap">
+  <nav class="dock" id="dock" role="tablist" aria-label="Section"></nav>
+  <div class="sidetoggle" role="tablist" aria-label="Side">
+    <button class="sd" role="tab" id="sd0" aria-selected="true" aria-label="Workspace" onclick="setSide(0)"></button>
+    <button class="sd" role="tab" id="sd1" aria-selected="false" aria-label="Company" onclick="setSide(1)"></button>
+  </div>
+</div>
+
+<script>
+const rs = n => '₹' + n.toLocaleString('en-IN');
+const alert0 = () => {};
+
+/* ---- icons ---- */
+const I = {
+  input:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M9 21h6M12 17v4M12 7v6m0 0 2.5-2.5M12 13 9.5 10.5"/></svg>',
+  process:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="10.5" r="3"/><path d="M12 3v2m0 11v2M4.7 6.2l1.7 1m11.2 6.6 1.7 1M4.7 14.8l1.7-1m11.2-6.6 1.7-1"/><path d="M9 21h6"/></svg>',
+  output:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="1.5"/><path d="M6 16h12v5H6z"/><circle cx="18" cy="12" r=".9" fill="currentColor" stroke="none"/></svg>',
+  dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M6 13V9m4 4V7m4 6v-3m4 3V8M9 21h6M12 17v4"/></svg>',
+  people:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3.2 2.7-5.2 6-5.2s6 2 6 5.2"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16 14.2c3 .2 5 2.2 5 4.8"/></svg>',
+  data:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.2h7A1.5 1.5 0 0 1 19 9.7V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 18z"/><path d="M7 6V4.5A1.5 1.5 0 0 1 8.5 3h4l2 2.2h5A1.5 1.5 0 0 1 21 6.7V15"/></svg>',
+  home:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2.5 11h3v10h5.2v-6h2.6v6H18.5V11h3z"/></svg>',
+  avatar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="9.5" r="3.3" fill="currentColor" stroke="none"/><path d="M5.6 19.4a6.8 6.8 0 0 1 12.8 0" fill="currentColor" stroke="none"/></svg>',
+  cloud:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 18h10a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.9 11 3.5 3.5 0 0 0 7 18z"/><path d="M12 15.5v-6m0 0-2 2m2-2 2 2"/></svg>',
+  folder:'<svg viewBox="0 0 118 88" fill="none"><path d="M2 14a6 6 0 0 1 6-6h30l9 10h63a6 6 0 0 1 6 6v58a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6z" fill="#3c3c44"/><path d="M2 26a6 6 0 0 1 6-6h102a6 6 0 0 1 6 6v52a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6z" fill="#4a4a54"/></svg>'
+};
+
+/* ---- example dataset: Shree Balaji Traders, September 2026 ---- */
+const M = {
+  cash:{label:'Available cash',val:'₹16.2L',cap:'Reconciled · ₹18.5K unmatched',status:'incomplete',
+    exact:1620100,formula:'Sum of reconciled closing balances of all active bank and cash accounts',
+    ver:'cash@1.2.0',srcs:'bank_accounts · bank_statement_lines · cash_book · reconciliation_matches',
+    refresh:'On bank sync, max 24h',
+    note:'1 unmatched bank line of ₹18,500 (27 Sep UPI) may be a business expense not yet posted.',
+    items:[{t:'HDFC Current ···4471',s:'Reconciled to 30 Sep',v:1620100}],
+    doc:{title:'HDFC statement · Sep 2026',lines:[['Opening 01 Sep','₹8,00,000'],['Total credits','₹11,68,000'],['Total debits','₹3,47,900']],hl:['Closing 30 Sep','₹16,20,100']}},
+
+  sales:{label:'Sales MTD',val:'₹12L',cap:'Month to date',status:'verified',exact:1200000,
+    formula:'Σ taxable value of sales invoices in period − credit notes. Net of GST.',
+    ver:'sales@1.1.0',srcs:'sales_invoices · credit_notes · periods',refresh:'Daily',
+    items:[{t:'INV-1042 · Anand Enterprises',s:'03 Sep · Karnataka',v:400000},
+           {t:'INV-1043 · Meridian Industries',s:'09 Sep · Tamil Nadu · job work',v:600000},
+           {t:'INV-1044 · Anand Enterprises',s:'18 Sep · Karnataka',v:250000},
+           {t:'CN-07 · Anand Enterprises',s:'22 Sep · credit note v. INV-1044',v:-50000}],
+    doc:{title:'INV-1043.pdf · page 1',lines:[['Taxable value','₹6,00,000'],['IGST 18%','₹1,08,000']],hl:['Invoice total','₹7,08,000']}},
+
+  dues:{label:'Customer dues',val:'₹5.9L',cap:'₹3.54L overdue',status:'verified',exact:590000,
+    formula:'Σ (invoice total − payments allocated − credit notes) on open sales invoices',
+    ver:'receivables@1.3.0',srcs:'sales_invoices · payments · credit_notes · payment_terms',refresh:'Daily',
+    items:[{t:'Gokul Agencies',s:'INV-1031 · 05 Aug · overdue 26 days',v:354000},
+           {t:'Anand Enterprises',s:'INV-1044 less CN-07 · due 18 Oct',v:236000}],
+    doc:{title:'INV-1031.pdf · page 1',lines:[['Taxable value','₹3,00,000'],['CGST 9% + SGST 9%','₹54,000']],hl:['Total','₹3,54,000']}},
+
+  pay:{label:'Payments due',val:'₹7.32L',cap:'Next 7 days: ₹0',status:'incomplete',exact:731600,
+    formula:'Σ (bill total − payments made − debit notes) on open purchase bills, plus salary, EMI and statutory dues',
+    ver:'payables@1.2.0',srcs:'purchase_bills · payments · payroll · loans',refresh:'Daily',
+    note:'PB-551 carries an open quantity mismatch of ₹29,500 against challan DC-91.',
+    items:[{t:'Kaveri Polymers',s:'PB-551 · due 20 Oct · qty mismatch open',v:590000},
+           {t:'Sunrise Packaging',s:'PB-553 · due 20 Oct',v:141600}],
+    doc:{title:'PB-551.pdf vs DC-91',lines:[['PO-218 ordered','1,000 kg @ ₹500'],['DC-91 received','950 kg']],hl:['Invoice billed','1,000 kg — ₹5,90,000']}},
+
+  flow:{label:'Net cash flow',val:'+₹8.2L',cap:'This month',status:'incomplete',exact:820100,
+    formula:'Cash in − cash out for the period. Internal transfers excluded.',
+    ver:'cashflow@1.1.0',srcs:'bank_statement_lines · cash_book · transfer_pairs',refresh:'Daily',
+    items:[{t:'Receipts',s:'Anand ₹4,72,000 · Meridian ₹6,96,000',v:1168000},
+           {t:'Payments',s:'Aug GST, freight, salaries, 1 unmatched',v:-347900}],
+    doc:{title:'Bank movement · Sep 2026',lines:[['Credits','₹11,68,000'],['Debits','₹3,47,900']],hl:['Net','+₹8,20,100']}},
+
+  ebitda:{label:'EBITDA',val:'₹1.9L',cap:'Provisional MTD',status:'provisional',exact:190000,
+    formula:'Gross profit − operating expenses, before interest, tax, depreciation and amortisation',
+    ver:'ebitda@1.0.0',srcs:'ledger_entries · chart_of_accounts · inventory_valuation',refresh:'Monthly',
+    note:'September is not closed. Closing stock is valued but the PB-551 quantity mismatch could move COGS by ₹25,000.',
+    items:[{t:'Net sales',s:'After credit notes, net of GST',v:1200000},
+           {t:'COGS',s:'Opening 6.0L + purchases 6.2L + freight 0.8L − closing 5.2L',v:-780000},
+           {t:'Operating expenses',s:'Salaries 1.5L · rent 0.6L · other 0.2L',v:-230000}],
+    doc:{title:'Provisional P&L · Sep 2026',lines:[['Gross profit','₹4,20,000 (35.00%)'],['Operating expenses','₹2,30,000']],hl:['EBITDA','₹1,90,000 (15.83%)']}}
+};
+
+const EXC = [
+  {n:1,sev:'crit',t:'Overdue customer payment',s:'Gokul Agencies · INV-1031 · 26 days past due',a:'₹3,54,000'},
+  {n:1,sev:'warn',t:'Quantity mismatch',s:'PB-551 billed 1,000 kg · DC-91 received 950 kg',a:'₹29,500'},
+  {n:1,sev:'warn',t:'ITC not in GSTR-2B',s:'Sunrise Packaging · PB-553 · vendor filed late',a:'₹21,600'},
+  {n:1,sev:'warn',t:'Unmatched bank transaction',s:'27 Sep · UPI-4471······ · no supporting document',a:'₹18,500'},
+  {n:1,sev:'',t:'GSTR-3B due in 20 days',s:'Draft prepared · awaiting CA review',a:'₹1,11,600'}
+];
+
+/* ---- screens ---- */
+const SIDES = [
+  {segs:[['input','Input',I.input],['process','Process',I.process],['output','Output',I.output]]},
+  {segs:[['dash','Dashboard',I.dash],['people','People',I.people],['data','Data',I.data]]}
+];
+let side=0, tab='input';
+
+const head = (title,glyph,sub,demo) =>
+  `<div class="glyph">${glyph}</div>
+   <div class="head"><h1>${title}</h1>${demo?'<span class="demo">Example figures only</span>':''}</div>
+   ${sub?`<p class="sub">${sub}</p>`:''}`;
+
+const ribbon = `<div class="ribbon">
+  <span><span class="dot ok"></span>Books current to <b>30 Sep</b></span><span class="sep">·</span>
+  <span><span class="dot ok"></span><b>4 of 4</b> sources fresh</span><span class="sep">·</span>
+  <span><span class="dot warn"></span><b>4 items</b> need you</span><span class="sep">·</span>
+  <span><span class="dot warn"></span>Sep period <b>OPEN</b></span></div>`;
+
+const cardHTML = (k) => { const m=M[k];
+  return `<button class="card" onclick="openTrace('${k}')">
+    <div class="ch">${m.status==='verified'?'':`<span class="pill ${m.status}">${m.status}</span>`}</div>
+    <div class="cb"><div class="lab">${m.label}</div>
+      <div class="val tnum ${m.status==='provisional'?'prov':''}">${m.val}</div>
+      <div class="cap">${m.cap}</div></div></button>`;
+};
+
+const SCREENS = {
+dash: () => head('Owner dashboard',I.avatar,'Shree Balaji Traders Pvt Ltd · Bengaluru · September 2026',1) + ribbon +
+  `<div class="band">Money now</div><div class="cards">${cardHTML('cash')}${cardHTML('flow')}</div>
+   <div class="band">Who owes · what's owed</div><div class="cards">${cardHTML('dues')}${cardHTML('pay')}</div>
+   <div class="band">Performance — provisional until September closes</div><div class="cards">${cardHTML('sales')}${cardHTML('ebitda')}</div>
+   <div class="band">Needs attention</div>
+   <div class="panel"><h3>Ordered by severity, then rupee impact</h3>
+     ${EXC.map(e=>`<button class="exc"><span class="n ${e.sev}">${e.n}</span>
+       <span class="t"><b>${e.t}</b><span>${e.s}</span></span>
+       <span class="amt tnum">${e.a}</span></button>`).join('')}</div>
+   <p class="sub" style="margin-top:20px">Every figure links to its transactions, then to the source document. Tap any card.</p>`,
+
+input: () => head('Input',I.home,'Collect and extract — documents in, structured fields out') +
+  `<div class="drop"><div class="target"><div>
+     <div class="t1">Upload ${I.cloud}</div>
+     <div class="t2">Drop files, or forward bills to <b style="color:var(--text)">balaji@in.sherrbyte.com</b></div>
+   </div></div>
+   <input class="itype" placeholder="Enter your Input type…" aria-label="Input type">
+   <div class="chips">${['Sales invoices','Credit Notes','Purchase bills','PO’s','Bank statements','Cashbook','Customer and supplier ledgers','Expenses','Assets','Inventory','Payroll']
+     .map((c,i)=>`<button class="chip" aria-pressed="${i===2}" onclick="this.setAttribute('aria-pressed',this.getAttribute('aria-pressed')!=='true')">${c}</button>`).join('')}</div></div>
+   <div class="band">AI document inbox — 6 waiting</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>Document</th><th>Type</th><th>Extraction</th><th class="r">Amount</th><th>State</th></tr></thead><tbody>
+     <tr><td>PB-553_sunrise.pdf</td><td>Purchase bill</td><td class="ok-t">0.97 · checks passed</td><td class="r tnum">₹1,41,600</td><td>Ready to post</td></tr>
+     <tr><td>INV-1044_anand.pdf</td><td>Sales invoice</td><td class="ok-t">0.99 · checks passed</td><td class="r tnum">₹2,95,000</td><td>Posted</td></tr>
+     <tr><td>DC-91_kaveri.jpg</td><td>Delivery challan</td><td class="warn-t">0.71 · quantity unclear</td><td class="r tnum">950 kg</td><td>Needs review</td></tr>
+     <tr><td>bill_scan_0043.jpg</td><td class="stale-t">Unclassified</td><td class="crit-t">0.38 · arithmetic failed</td><td class="r">—</td><td>Needs review</td></tr>
+     <tr><td>deccan_freight.pdf</td><td>Purchase bill</td><td class="stale-t">Duplicate of PB-552</td><td class="r tnum">₹94,400</td><td>Suppressed</td></tr>
+     <tr><td>hdfc_sep2026.csv</td><td>Bank statement</td><td class="ok-t">6 lines parsed</td><td class="r">—</td><td>Posted</td></tr>
+     </tbody></table></div></div>
+   <p class="sub" style="margin-top:18px">Nothing posts automatically on a new account. The threshold rises only after measured human agreement.</p>`,
+
+process: () => head('Process',I.home,'Normalize → connect → validate → reconcile → calculate') +
+  `<div class="pipe">
+    <div class="st"><div class="sn tnum">14</div><div class="sl">Received</div></div>
+    <div class="st"><div class="sn tnum">8</div><div class="sl">Extracted</div></div>
+    <div class="st hot"><div class="sn tnum">4</div><div class="sl">Needs review</div></div>
+    <div class="st"><div class="sn tnum">126</div><div class="sl">Posted</div></div>
+    <div class="st"><div class="sn tnum">₹0.00</div><div class="sl">TB difference</div></div>
+   </div>
+   <div class="band">Bank reconciliation — 30 Sep</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>Statement line</th><th>Proposed match</th><th>Tier</th><th class="r">Amount</th></tr></thead><tbody>
+     <tr><td>15 Sep · NEFT-ANAND ENTERPRISE-CR</td><td class="ok-t">INV-1042 — exact</td><td>1 · exact</td><td class="r tnum">₹4,72,000</td></tr>
+     <tr><td>25 Sep · NEFT-MERIDIAN INDS-XXXX</td><td class="ok-t">INV-1043 + ₹12,000 TDS residual</td><td>4 · residual</td><td class="r tnum">₹6,96,000</td></tr>
+     <tr><td>28 Sep · RTGS-DECCAN LOGISTICS</td><td class="ok-t">PB-552 — exact</td><td>1 · exact</td><td class="r tnum">₹94,400</td></tr>
+     <tr><td>20 Sep · GST PMT-AUG-3B</td><td class="ok-t">August GST challan</td><td>2 · rule</td><td class="r tnum">₹85,000</td></tr>
+     <tr><td>30 Sep · SALARY-SEP</td><td class="ok-t">Payroll September</td><td>2 · rule</td><td class="r tnum">₹1,50,000</td></tr>
+     <tr><td>27 Sep · UPI-4471······</td><td class="crit-t">No supporting document</td><td>—</td><td class="r tnum">₹18,500</td></tr>
+     </tbody></table></div></div>
+   <p class="sub" style="margin-top:14px">The ₹12,000 shortfall on the Meridian receipt is 2.00% of taxable value — the 194C signature. A naive matcher leaves this unmatched.</p>
+   <div class="band">Open exceptions</div>
+   <div class="panel">${EXC.slice(0,4).map(e=>`<button class="exc"><span class="n ${e.sev}">${e.n}</span>
+     <span class="t"><b>${e.t}</b><span>${e.s}</span></span><span class="amt tnum">${e.a}</span></button>`).join('')}</div>`,
+
+output: () => head('Output',I.home,'Analyze → review → distribute') +
+  `<div class="folders">
+    ${[['Accounts','Registers · GL · ageing',12],['Taxation','GST · TDS · calendar',5],
+       ['Financial reports','P&L · BS · cash flow',4],['Profit analysis','Margins · segments',6],
+       ['Documentation','Packs · workpapers',9],['Exports','Tally · CSV · API',3]]
+      .map(([l,s,n])=>`<button class="folder"><span class="fi">${I.folder}<span class="badge tnum">${n}</span></span>
+        <span class="fl">${l}</span><span class="fs">${s}</span></button>`).join('')}
+   </div>
+   <div class="band">September 2026 · GST working — draft</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>Head</th><th class="r">Output tax</th><th class="r">ITC in 2B</th><th class="r">Payable in cash</th></tr></thead><tbody>
+     <tr><td>CGST</td><td class="r tnum">₹54,000</td><td class="r tnum">₹52,200</td><td class="r tnum">₹1,800</td></tr>
+     <tr><td>SGST</td><td class="r tnum">₹54,000</td><td class="r tnum">₹52,200</td><td class="r tnum">₹1,800</td></tr>
+     <tr><td>IGST</td><td class="r tnum">₹1,08,000</td><td class="r tnum">₹0</td><td class="r tnum">₹1,08,000</td></tr>
+     <tr><td><b style="color:var(--text)">Total</b></td><td class="r tnum">₹2,16,000</td><td class="r tnum">₹1,04,400</td><td class="r tnum" style="color:var(--text)">₹1,11,600</td></tr>
+     </tbody></table></div></div>
+   <p class="sub" style="margin-top:14px"><span class="pill draft" style="margin-right:8px">Draft — requires CA review</span>
+     ₹21,600 IGST on PB-553 is deferred, not claimed: the vendor has not yet filed. SherrByte prepares; an authorised person files.</p>`,
+
+people: () => head('People',I.avatar,'Roles, scope and approval routing') +
+  `<div class="panel"><div class="scroll"><table class="rows">
+    <thead><tr><th>Capability</th><th>Owner</th><th>Accountant</th><th>CA reviewer</th><th>Auditor</th></tr></thead><tbody>
+    ${[['Post to ledger','—','✓','—','—'],['Resolve exceptions','—','✓','✓','—'],
+       ['Waive an exception','✓','—','✓','—'],['Close a period','—','—','✓','—'],
+       ['Reopen a closed period','✓','—','—','—'],['Approve tax workings','✓','—','✓','—'],
+       ['Read audit log','✓','—','✓','✓'],['Export evidence pack','✓','—','✓','scoped']]
+      .map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join('')}
+    </tbody></table></div></div>
+   <p class="sub" style="margin-top:16px">External access is time-boxed by default. A membership past its valid-to date is denied on every endpoint.</p>
+   <div class="band">Members</div>
+   <div class="panel">
+     <button class="exc"><span class="n">JC</span><span class="t"><b>Jashwanth C.</b><span>Owner · full access</span></span><span class="amt" style="font-size:13px;color:var(--text2)">Active</span></button>
+     <button class="exc"><span class="n">PS</span><span class="t"><b>Priya S.</b><span>Accountant · posts and reconciles</span></span><span class="amt" style="font-size:13px;color:var(--text2)">Active</span></button>
+     <button class="exc"><span class="n">RK</span><span class="t"><b>R. Kulkarni &amp; Co.</b><span>CA reviewer · FY 2026-27 only</span></span><span class="amt" style="font-size:13px;color:var(--warn)">Expires 31 Mar</span></button>
+   </div>`,
+
+data: () => head('Data',I.avatar,'Sources, rule versions and audit history') +
+  `<div class="band">Connected sources</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>Source</th><th>Last successful sync</th><th>Records</th><th>State</th></tr></thead><tbody>
+     <tr><td>Tally Prime · local agent</td><td>30 Sep 18:30</td><td class="tnum">1,284</td><td class="ok-t">Fresh</td></tr>
+     <tr><td>HDFC current ···4471</td><td>30 Sep 18:12</td><td class="tnum">6</td><td class="ok-t">Fresh</td></tr>
+     <tr><td>GSTR-2B · uploaded JSON</td><td>28 Sep 10:04</td><td class="tnum">3</td><td class="ok-t">Fresh</td></tr>
+     <tr><td>Email-in · balaji@in.sherrbyte.com</td><td>30 Sep 17:48</td><td class="tnum">14</td><td class="ok-t">Fresh</td></tr>
+     </tbody></table></div></div>
+   <div class="band">Rule versions in force</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>Rule set</th><th>Version</th><th>Effective from</th></tr></thead><tbody>
+     <tr><td>GST</td><td><code>gst@2026-04-01</code></td><td>01 Apr 2026</td></tr>
+     <tr><td>TDS</td><td><code>tds@2026-04-01</code></td><td>01 Apr 2026</td></tr>
+     <tr><td>Depreciation</td><td><code>dep@2025-04-01</code></td><td>01 Apr 2025</td></tr>
+     </tbody></table></div></div>
+   <p class="sub" style="margin-top:14px">Recomputing a past period uses the rule in force then, never today's.</p>
+   <div class="band">Audit history</div>
+   <div class="panel"><div class="scroll"><table class="rows">
+     <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Subject</th></tr></thead><tbody>
+     <tr><td>30 Sep 18:31</td><td>Priya S. · accountant</td><td>Matched bank line</td><td>INV-1043 · residual TDS ₹12,000</td></tr>
+     <tr><td>30 Sep 17:52</td><td>System</td><td>Suppressed duplicate</td><td>deccan_freight.pdf → PB-552</td></tr>
+     <tr><td>30 Sep 17:50</td><td>System</td><td>Raised exception</td><td>QTY_MISMATCH · PB-551 · ₹29,500</td></tr>
+     <tr><td>06 Aug 11:42</td><td>Priya S. · accountant</td><td>Approved extraction</td><td>INV-1031 · ₹3,54,000</td></tr>
+     </tbody></table></div></div>
+   <p class="sub" style="margin-top:14px">Append-only. The application role holds no UPDATE or DELETE grant on this table.</p>`
+};
+
+/* ---- trace drawer ---- */
+function openTrace(k){
+  const m=M[k], el=document.getElementById('trace');
+  const sum=m.items.reduce((a,b)=>a+b.v,0);
+  el.innerHTML=`<div class="th"><h3>${m.label}</h3>
+      ${m.status==='verified'?'<span class="pill verified">verified</span>':`<span class="pill ${m.status}">${m.status}</span>`}
+      <button class="close" onclick="closeTrace()" aria-label="Close">✕</button></div>
+    <div class="tb">
+      <div class="bigv tnum">${m.val}</div>
+      <div style="color:var(--text3);font-size:13px">${rs(m.exact)} exact · as of 30 Sep 2026 18:30 IST</div>
+      ${m.note?`<div class="note" style="margin-top:18px">${m.note}</div>`:''}
+      <dl class="meta">
+        <dt>Formula</dt><dd>${m.formula}</dd>
+        <dt>Version</dt><dd><code>${m.ver}</code></dd>
+        <dt>Sources</dt><dd>${m.srcs}</dd>
+        <dt>Refresh</dt><dd>${m.refresh}</dd>
+      </dl>
+      <div class="tsec">Contributing records</div>
+      ${m.items.map(i=>`<div class="tline"><span class="d"><b>${i.t}</b><span>${i.s}</span></span>
+        <span class="v tnum">${i.v<0?'−':''}${rs(Math.abs(i.v))}</span></div>`).join('')}
+      <div class="sumline"><span>Sum of listed records</span><span class="tnum">${sum<0?'−':''}${rs(Math.abs(sum))} ✓ matches</span></div>
+      <div class="tsec">Source evidence</div>
+      <div class="docview"><div style="color:var(--text);margin-bottom:10px">${m.doc.title}</div>
+        ${m.doc.lines.map(l=>`<div class="dl"><span>${l[0]}</span><span class="tnum">${l[1]}</span></div>`).join('')}
+        <div class="dl" style="margin-top:6px"><span>${m.doc.hl[0]}</span><span class="hl tnum">${m.doc.hl[1]}</span></div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:12px">
+        Extracted region highlighted · confidence 0.99 · method native_pdf · arithmetic check passed<br>
+        Approved by Priya S. (accountant)
+      </div>
+    </div>`;
+  el.classList.add('on'); document.getElementById('scrim').classList.add('on');
+}
+function closeTrace(){document.getElementById('trace').classList.remove('on');document.getElementById('scrim').classList.remove('on');}
+addEventListener('keydown',e=>{if(e.key==='Escape')closeTrace();});
+
+/* ---- nav ---- */
+function renderDock(){
+  document.getElementById('dock').innerHTML = SIDES[side].segs.map(([id,l,ic])=>
+    `<button class="seg" role="tab" aria-selected="${tab===id}" onclick="setTab('${id}')">${ic}<span>${l}</span></button>`).join('');
+  document.getElementById('sd0').setAttribute('aria-selected',side===0);
+  document.getElementById('sd1').setAttribute('aria-selected',side===1);
+}
+function render(){document.getElementById('stage').innerHTML=SCREENS[tab]();scrollTo(0,0);renderDock();}
+function setTab(t){tab=t;render();}
+function setSide(s){side=s;tab=SIDES[s].segs[0][0];render();}
+
+side=1; tab='dash'; render();
+</script>
