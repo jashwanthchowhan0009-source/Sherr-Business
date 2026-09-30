@@ -113,13 +113,60 @@ No money columns exist yet. `src/lib/money.ts` fixes the convention now so Phase
 
 ## Deploying to Neon + Vercel
 
-```bash
-# Once per database, with DATABASE_URL_OWNER pointed at Neon:
-APP_DB_PASSWORD='<strong password>' pnpm db:bootstrap
-pnpm db:migrate
+### 1. Create the application role in the Neon SQL Editor
+
+**Do not use Neon's Roles UI.** Roles created there are granted `neon_superuser`, which carries `BYPASSRLS` — every policy in this schema would be silently inert, and the failure is invisible because queries keep working and simply return other tenants' rows.
+
+Create it with SQL instead, as the project's owner role:
+
+```sql
+CREATE ROLE sherrbyte_app WITH LOGIN NOBYPASSRLS NOCREATEDB NOCREATEROLE
+  PASSWORD 'replace-with-a-long-random-password';
+
+GRANT CONNECT ON DATABASE neondb TO sherrbyte_app;   -- your database name
+GRANT USAGE ON SCHEMA public TO sherrbyte_app;
 ```
 
-Set `DATABASE_URL` (the `sherrbyte_app` connection string), `DATABASE_URL_OWNER`, and the Clerk keys in Vercel. **Do not seed production** — `db:seed` refuses unless `ALLOW_PRODUCTION_SEED` is set.
+That is all it needs. Every table, sequence and function grant is in the migration itself, so the role must exist *before* migrations run — otherwise they fail with `role "sherrbyte_app" does not exist`.
+
+Confirm it came out right:
+
+```sql
+SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
+  FROM pg_roles WHERE rolname = 'sherrbyte_app';
+-- all four must be false
+```
+
+`pnpm db:bootstrap` asserts the same properties and refuses to continue otherwise, and `tests/integration/rls-privileges.test.ts` fails the build if they ever change.
+
+### 2. Set the two connection strings in Vercel
+
+Both come from the same Neon endpoint; only the role, password and host differ.
+
+| Variable | Role | Host | Why |
+|---|---|---|---|
+| `DATABASE_URL` | `sherrbyte_app` | **pooled** (`-pooler` in the hostname) | Serverless functions open many short-lived connections. `withTenant` uses `SET LOCAL` inside a transaction, which is safe under PgBouncer's transaction pooling. |
+| `DATABASE_URL_OWNER` | the Neon owner role | **direct** (no `-pooler`) | Migrations take a session-level advisory lock, which does not survive transaction pooling. |
+
+```
+DATABASE_URL="postgresql://sherrbyte_app:<password>@<endpoint>-pooler.<region>.aws.neon.tech/<db>?sslmode=require"
+DATABASE_URL_OWNER="postgresql://<owner>:<password>@<endpoint>.<region>.aws.neon.tech/<db>?sslmode=require"
+```
+
+Keep `sslmode=require`: the pg client only enables TLS when it sees it in the string.
+
+### 3. Migrations run during the build
+
+`vercel.json` sets the build command to `pnpm db:migrate && pnpm build`, so a deploy cannot ship code whose schema has not been applied.
+
+Two safeguards, both in `scripts/migrate.ts`:
+
+- **Production only.** Preview deployments inherit the same `DATABASE_URL_OWNER`, so letting them migrate would apply an unreviewed branch's schema change to production data. Previews skip with a message. Set `ALLOW_PREVIEW_MIGRATIONS=1` on a preview environment that has its own database (a Neon branch, say) to opt in.
+- **A session-level advisory lock.** Two builds can run at once — a push that supersedes an in-flight deploy, for instance. The second waits, then re-reads what has been applied and does nothing.
+
+A missing `DATABASE_URL_OWNER` fails the build rather than skipping quietly: deploying code against an older schema breaks at the first query, which is worse than a red deploy.
+
+**Do not seed production** — `db:seed` refuses unless `ALLOW_PRODUCTION_SEED` is set.
 
 Server actions and route handlers run on the Node runtime because `pg` cannot run on Edge. Middleware is Edge and deliberately never touches the database.
 
