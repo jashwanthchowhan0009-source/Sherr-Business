@@ -100,10 +100,26 @@ describe('content security policy', () => {
     }
   });
 
-  it('carries the nonce and strict-dynamic', () => {
+  it('carries the nonce', () => {
+    expect(build()['script-src']).toContain("'nonce-test-nonce'");
+  });
+
+  // Regression: 'strict-dynamic' disables host-based allowlisting, and
+  // @clerk/nextjs renders the clerk-js <script> without a nonce attribute, so
+  // the browser refused it outright and Clerk had to fall back to loading
+  // itself from the app bundle. Every remote script is named by host instead.
+  it('omits strict-dynamic, which would block the un-nonced clerk-js tag', () => {
+    expect(build()['script-src']).not.toContain("'strict-dynamic'");
+    expect(build({ isDev: true })['script-src']).not.toContain("'strict-dynamic'");
+  });
+
+  it('never falls back to blanket script sources', () => {
+    // Without 'strict-dynamic' the host list is load-bearing, so a wildcard
+    // scheme here would quietly undo the whole directive.
     const scriptSrc = build()['script-src'];
-    expect(scriptSrc).toContain("'nonce-test-nonce'");
-    expect(scriptSrc).toContain("'strict-dynamic'");
+    for (const blanket of ['https:', 'http:', "'unsafe-inline'", '*']) {
+      expect(scriptSrc, blanket).not.toContain(blanket);
+    }
   });
 
   it('allows unsafe-eval only in development', () => {

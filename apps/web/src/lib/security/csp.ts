@@ -71,13 +71,23 @@ export function contentSecurityPolicy({
 }: CspOptions): string {
   const clerkHosts = [...CLERK_WILDCARDS, fapiHost ? `https://${fapiHost}` : ''].filter(Boolean);
 
+  // Deliberately no 'strict-dynamic'. It would be the stronger policy, but it
+  // disables host-based allowlisting, and Clerk's loader cannot survive that:
+  // @clerk/nextjs renders the clerk-js <script> through ClerkJSScript, which
+  // never sets a nonce attribute on it (6.39.7, utils/clerk-js-script.js), and
+  // the ClerkProvider `nonce` prop only reaches the script URL. A parser-
+  // inserted cross-origin tag with no nonce and no usable allowlist is simply
+  // refused, which is what production reported:
+  //
+  //   Loading the script '…/clerk.browser.js' violates the following Content
+  //   Security Policy directive … Note that 'strict-dynamic' is present, so
+  //   host-based allowlisting is disabled. The action has been blocked.
+  //
+  // The nonce below still covers Next's inline bootstrap; every remote script
+  // is named explicitly instead.
   const scriptSrc = [
     "'self'",
     `'nonce-${nonce}'`,
-    // Lets the nonced Next bootstrap load its own chunks, and Clerk load
-    // Turnstile. Browsers honouring 'strict-dynamic' ignore the host list
-    // below; it is kept for those that do not.
-    "'strict-dynamic'",
     TURNSTILE,
     ...clerkHosts,
     isDev ? "'unsafe-eval'" : '',
