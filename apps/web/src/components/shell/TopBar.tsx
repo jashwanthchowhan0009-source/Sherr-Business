@@ -1,3 +1,4 @@
+import { UserButton } from '@clerk/nextjs';
 import styles from './shell.module.css';
 
 export function TopBar() {
@@ -12,6 +13,9 @@ export function TopBar() {
         </span>
         <span className={styles.kbd}>⌘K</span>
       </button>
+      {/* Account settings and sign-out. Without this there is no route to
+          either, which previously stranded anyone who got past the MFA gate. */}
+      <UserButton />
     </header>
   );
 }
