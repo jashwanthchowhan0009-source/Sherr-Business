@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { contentSecurityPolicy } from '@/lib/security/csp';
+import { contentSecurityPolicy, frontendApiHost } from '@/lib/security/csp';
 
 /**
  * Edge middleware. Must not touch the database — `pg` cannot run here, and the
@@ -24,8 +24,14 @@ const isMfaSetup = createRouteMatcher(['/onboarding/mfa(.*)']);
 
 function withSecurity(req: NextRequest): { response: NextResponse; nonce: string } {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
-  const isDev = process.env.NODE_ENV === 'development';
-  const csp = contentSecurityPolicy(nonce, isDev);
+  const csp = contentSecurityPolicy({
+    nonce,
+    isDev: process.env.NODE_ENV === 'development',
+    // Derived from the key rather than hardcoded, so it is right for whichever
+    // Clerk instance the deployment actually points at.
+    fapiHost: frontendApiHost(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY),
+    sentryEnabled: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN),
+  });
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set('x-nonce', nonce);
