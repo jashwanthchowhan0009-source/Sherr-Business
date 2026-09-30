@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { contentSecurityPolicy } from '@/lib/security/csp';
 
 /**
  * Edge middleware. Must not touch the database — `pg` cannot run here, and the
@@ -20,29 +21,6 @@ const isPublic = createRouteMatcher([
 
 /** The MFA enrolment page itself must stay reachable while MFA is missing. */
 const isMfaSetup = createRouteMatcher(['/onboarding/mfa(.*)']);
-
-function contentSecurityPolicy(nonce: string, isDev: boolean): string {
-  // Clerk serves its interstitial and telemetry from these hosts.
-  const clerk = 'https://*.clerk.accounts.dev https://*.clerk.com https://clerk.sherrbyte.com';
-  return [
-    `default-src 'self'`,
-    // 'strict-dynamic' lets the nonced Next bootstrap load its own chunks.
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${isDev ? "'unsafe-eval'" : ''}`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-    `font-src 'self' https://fonts.gstatic.com data:`,
-    `img-src 'self' data: blob: https://img.clerk.com`,
-    `connect-src 'self' ${clerk} https://*.ingest.sentry.io`,
-    `frame-src ${clerk}`,
-    `worker-src 'self' blob:`,
-    `object-src 'none'`,
-    `base-uri 'self'`,
-    `form-action 'self'`,
-    `frame-ancestors 'none'`,
-    isDev ? '' : 'upgrade-insecure-requests',
-  ]
-    .filter(Boolean)
-    .join('; ');
-}
 
 function withSecurity(req: NextRequest): { response: NextResponse; nonce: string } {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');

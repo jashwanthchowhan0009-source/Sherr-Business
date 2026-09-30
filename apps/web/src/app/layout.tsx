@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { ClerkProvider } from '@clerk/nextjs';
 import { clerkConfigured } from '@/lib/env';
 import './globals.css';
@@ -16,7 +17,7 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const body = (
     <html lang="en">
       <body>{children}</body>
@@ -24,5 +25,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
   // Without Clerk keys the provider throws at render. The app still boots so the
   // database layer and the shell can be worked on; protected routes stay closed.
-  return clerkConfigured() ? <ClerkProvider>{body}</ClerkProvider> : body;
+  if (!clerkConfigured()) return body;
+
+  // middleware.ts mints a per-request nonce. Next applies it to its own scripts,
+  // but the clerk-js <script> that ClerkProvider injects only carries one if we
+  // pass it here — and without a nonce 'strict-dynamic' blocks that tag.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
+  return <ClerkProvider nonce={nonce}>{body}</ClerkProvider>;
 }
