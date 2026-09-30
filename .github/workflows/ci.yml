@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  static:
+    name: Types, lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # Money is integer paise. Fails on real / double precision / numeric /
+      # decimal appearing in any migration. See src/lib/money.ts.
+      - name: No floating-point money columns
+        run: pnpm check:no-float
+
+      # No database needed: every page is force-dynamic, so nothing is
+      # pre-rendered against Postgres at build time.
+      - name: Build
+        run: pnpm build
+
+  database:
+    name: Tenant isolation and unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Three roles, and the separation is the point. The superuser creates the
+      # database and the owner; the owner runs migrations; the application
+      # connects as sherrbyte_app, which owns nothing and has no BYPASSRLS.
+      # Testing through any other role would prove nothing about the policies.
+      SUPERUSER_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      LOCAL_DB_OWNER_PASSWORD: ci_owner_password
+      APP_DB_PASSWORD: ci_app_password
+      DATABASE_URL_OWNER: postgresql://sherrbyte_owner:ci_owner_password@localhost:5432/sherrbyte
+      DATABASE_URL: postgresql://sherrbyte_app:ci_app_password@localhost:5432/sherrbyte
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create database and owner role
+        run: pnpm db:up
+
+      # Verifies rather than repairs: fails if the runtime role has SUPERUSER,
+      # BYPASSRLS, or owns a table, any of which makes RLS silently inert.
+      - name: Create and verify the application role
+        run: pnpm db:bootstrap
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Seed two organizations of mock data
+        run: pnpm db:seed
+
+      - name: Test
+        run: pnpm test
+
+  e2e:
+    name: End to end
+    runs-on: ubuntu-latest
+    needs: [static, database]
+    defaults:
+      run:
+        working-directory: apps/web
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SUPERUSER_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      LOCAL_DB_OWNER_PASSWORD: ci_owner_password
+      APP_DB_PASSWORD: ci_app_password
+      DATABASE_URL_OWNER: postgresql://sherrbyte_owner:ci_owner_password@localhost:5432/sherrbyte
+      DATABASE_URL: postgresql://sherrbyte_app:ci_app_password@localhost:5432/sherrbyte
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+      E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+
+    steps:
+      # Playwright drives a real browser against a real app, which needs Clerk
+      # test credentials. Without them the suite cannot exercise anything, so it
+      # is reported as SKIPPED. A skip must never be mistaken for a pass.
+      - name: Are Clerk test credentials configured?
+        id: creds
+        run: |
+          if [ -n "$CLERK_SECRET_KEY" ] && [ -n "$E2E_USER_EMAIL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### End-to-end tests: SKIPPED"
+              echo
+              echo "Not run, and not a pass. Add these repository secrets to enable them:"
+              echo '`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`,'
+              echo '`E2E_USER_EMAIL`, `E2E_USER_PASSWORD`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+        working-directory: .
+
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.enabled == 'true'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.creds.outputs.enabled == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.enabled == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - if: steps.creds.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.creds.outputs.enabled == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Prepare database
+        if: steps.creds.outputs.enabled == 'true'
+        run: pnpm db:up && pnpm db:bootstrap && pnpm db:migrate && pnpm db:seed
+
+      - if: steps.creds.outputs.enabled == 'true'
+        run: pnpm build
+
+      - name: Start the app
+        if: steps.creds.outputs.enabled == 'true'
+        run: |
+          pnpm start &
+          npx --yes wait-on -t 60000 http://127.0.0.1:3000/api/health
+
+      - if: steps.creds.outputs.enabled == 'true'
+        run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() && steps.creds.outputs.enabled == 'true' }}
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

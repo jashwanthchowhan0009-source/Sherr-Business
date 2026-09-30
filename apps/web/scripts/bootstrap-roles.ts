@@ -16,7 +16,11 @@ import { loadEnv } from './_env';
 loadEnv();
 
 const APP_ROLE = process.env.APP_DB_ROLE ?? 'sherrbyte_app';
-const APP_PASSWORD = process.env.LOCAL_DB_APP_PASSWORD ?? process.env.APP_DB_PASSWORD;
+// APP_DB_PASSWORD wins: it is what CI and production set explicitly, and it
+// must not be shadowed by a LOCAL_DB_APP_PASSWORD left in a developer's
+// .env.local. Getting this the wrong way round sets the role's password from
+// the local file and the application then cannot authenticate.
+const APP_PASSWORD = process.env.APP_DB_PASSWORD ?? process.env.LOCAL_DB_APP_PASSWORD;
 
 interface RoleAttrs {
   rolsuper: boolean;
@@ -36,14 +40,27 @@ async function main(): Promise<void> {
   });
 
   try {
+    const quoted = APP_PASSWORD.replace(/'/g, "''");
     const existing = await pool.query('select 1 from pg_roles where rolname = $1', [APP_ROLE]);
+
     if (existing.rows.length === 0) {
-      await pool.query(
-        `create role ${APP_ROLE} login password '${APP_PASSWORD.replace(/'/g, "''")}'`,
-      );
+      await pool.query(`create role ${APP_ROLE} login password '${quoted}'`);
       console.log(`[bootstrap] created role ${APP_ROLE}`);
     } else {
-      console.log(`[bootstrap] role ${APP_ROLE} already exists`);
+      // Idempotent on purpose. Re-running against a role that already exists
+      // must leave the password matching DATABASE_URL, or the application
+      // simply cannot authenticate -- and the failure appears at runtime,
+      // nowhere near this script.
+      try {
+        await pool.query(`alter role ${APP_ROLE} login password '${quoted}'`);
+        console.log(`[bootstrap] role ${APP_ROLE} already exists; password reset to match`);
+      } catch (err) {
+        console.warn(
+          `[bootstrap] WARNING: ${APP_ROLE} exists but its password could not be set ` +
+            `(${(err as Error).message}). The previous password remains in effect, so ` +
+            `DATABASE_URL must already carry it.`,
+        );
+      }
     }
 
     const db = (await pool.query('select current_database() as d')).rows[0].d;

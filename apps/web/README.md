@@ -141,6 +141,35 @@ pnpm test:e2e      # Playwright; SKIPS without Clerk test credentials, never pas
 | `db-encapsulation` | Nothing imports the raw pool or reaches the owner connection from a page. |
 | `money` | Paise round-trip exactly; fractional input is refused, not rounded. |
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`:
+
+| Job | What it runs |
+|---|---|
+| **static** | typecheck, lint, `check:no-float`, production build. No database needed — every page is `force-dynamic`. |
+| **database** | Postgres 16 service container, then `db:up → db:bootstrap → db:migrate → db:seed → test`. |
+| **e2e** | Playwright. **Skips** unless `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `E2E_USER_EMAIL` and `E2E_USER_PASSWORD` are set as repository secrets, and says so in the run summary rather than reporting a pass. |
+
+The `database` job uses three distinct roles, and that separation is the point:
+
+```
+postgres (superuser)   creates the database and the owner role
+sherrbyte_owner        runs migrations and the seed
+sherrbyte_app          what the tests connect as — owns nothing, no BYPASSRLS
+```
+
+Running the suite through any other role would prove nothing, because the owner is the one role the policies are designed to be bypassable by.
+
+Several guarantees in this codebase are only real because CI keeps checking them:
+
+- `tenant-isolation` catches a new table added without an RLS policy
+- `rls-privileges` catches a database where the runtime role was given ownership or `BYPASSRLS`
+- `action-guard` catches a hand-rolled server action that skipped the permission and audit path
+- `check:no-float` catches a `numeric` column reaching a migration
+
+To reproduce a CI run locally, point `SUPERUSER_DATABASE_URL` at a superuser and set the same variables the workflow does; `scripts/local-db.ts` takes that path instead of `su postgres` when the variable is present.
+
 ## Layout
 
 ```
