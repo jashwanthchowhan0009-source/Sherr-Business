@@ -43,6 +43,19 @@ describe('tenant isolation', () => {
          values ($1::uuid, 'test.row', 'test', $2)`,
         [orgId, orgId],
       );
+      // Every tenant table needs a row in both organizations, or the
+      // "sees exactly its own rows" case below proves nothing for it.
+      await owner.query(
+        `insert into account_groups (org_id, code, name, nature, bucket)
+         values ($1, 'TEST_GROUP', 'Test Group', 'asset', 'current_assets')`,
+        [orgId],
+      );
+      await owner.query(
+        `insert into accounts (org_id, group_id, code, name, nature)
+         select $1, g.id, 'TEST_ACCOUNT', 'Test Account', g.nature
+           from account_groups g where g.org_id = $1 and g.code = 'TEST_GROUP'`,
+        [orgId],
+      );
     }
   });
 

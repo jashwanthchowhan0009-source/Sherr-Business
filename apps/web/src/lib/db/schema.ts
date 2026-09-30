@@ -1,6 +1,7 @@
 import {
   bigserial,
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -31,6 +32,12 @@ export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 export const REGISTRATION_KINDS = ['gstin', 'tan', 'iec', 'msme', 'cin'] as const;
 export type RegistrationKind = (typeof REGISTRATION_KINDS)[number];
 
+export const REGISTRATION_TYPES = ['regular', 'composition', 'unregistered'] as const;
+export type RegistrationType = (typeof REGISTRATION_TYPES)[number];
+
+export const ACCOUNT_NATURES = ['asset', 'liability', 'equity', 'income', 'expense'] as const;
+export type AccountNatureValue = (typeof ACCOUNT_NATURES)[number];
+
 // ── organizations ───────────────────────────────────────────────────────────
 
 export const organizations = pgTable(
@@ -45,6 +52,10 @@ export const organizations = pgTable(
     stateCode: text('state_code'),
     /** 4 = April, the Indian financial year default. */
     fyStartMonth: integer('fy_start_month').notNull().default(4),
+    /** GST registration type. Composition changes the tax engine's behaviour. */
+    registrationType: text('registration_type').notNull().default('regular').$type<RegistrationType>(),
+    /** No voucher may be dated before this. */
+    booksStartDate: date('books_start_date'),
     baseCurrency: text('base_currency').notNull().default('INR'),
     status: text('status').notNull().default('active'),
     createdAt: createdAt(),
@@ -164,6 +175,52 @@ export const auditLogs = pgTable(
   ],
 );
 
+// ── account_groups / accounts (the chart of accounts) ──────────────────────
+
+export const accountGroups = pgTable(
+  'account_groups',
+  {
+    id: pk(),
+    orgId: orgId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    parentId: uuid('parent_id'),
+    nature: text('nature').notNull().$type<AccountNatureValue>(),
+    /** Where this group presents on the Schedule III face. */
+    bucket: text('bucket').notNull(),
+    isSystem: boolean('is_system').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('account_groups_org_code_key').on(t.orgId, t.code),
+    index('account_groups_org_parent_idx').on(t.orgId, t.parentId),
+  ],
+);
+
+export const accounts = pgTable(
+  'accounts',
+  {
+    id: pk(),
+    orgId: orgId(),
+    groupId: uuid('group_id').notNull(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    /** Inherited from the group; never set independently. */
+    nature: text('nature').notNull().$type<AccountNatureValue>(),
+    /** Referenced by code by the calculation engines, so it cannot be deleted. */
+    isSystem: boolean('is_system').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    note: text('note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('accounts_org_code_key').on(t.orgId, t.code),
+    index('accounts_org_group_idx').on(t.orgId, t.groupId),
+  ],
+);
+
 // ── rate_limits (system table; keyed by actor, not by tenant) ───────────────
 
 export const rateLimits = pgTable(
@@ -209,6 +266,8 @@ export const TENANT_TABLES = [
   'memberships',
   'invitations',
   'audit_logs',
+  'account_groups',
+  'accounts',
 ] as const;
 
 /**
