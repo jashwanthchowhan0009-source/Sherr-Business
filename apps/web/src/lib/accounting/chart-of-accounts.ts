@@ -98,6 +98,12 @@ export const ACCOUNTS: readonly AccountSeed[] = Object.freeze([
   { code: 'SUNDRY_DEBTORS', name: 'Sundry Debtors', group: 'SUNDRY_DEBTORS', isSystem: true,
     note: 'Control account for customer balances.' },
   { code: 'CASH', name: 'Cash', group: 'CASH_IN_HAND', isSystem: true },
+  // A company adds its real accounts (HDFC Current A/c and so on) under the
+  // Bank Accounts group. This one exists so a receipt can be banked on day
+  // one: without it the only destination for money received would be cash,
+  // which is not how any business actually operates.
+  { code: 'BANK', name: 'Bank Account', group: 'BANK_ACCOUNTS', isSystem: true,
+    note: 'Default bank ledger. Add your named bank accounts and use those instead.' },
   { code: 'STOCK_IN_HAND', name: 'Stock-in-Hand', group: 'STOCK_IN_HAND', isSystem: true,
     note: 'Closing stock is entered at period end; gross profit stays provisional until it is.' },
 

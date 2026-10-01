@@ -10,6 +10,7 @@
  */
 import { Pool } from 'pg';
 import { loadEnv } from './_env';
+import { CREATE_COMPANY_SQL, createCompanyParams } from '../src/lib/db/create-company';
 
 loadEnv();
 
@@ -81,17 +82,18 @@ async function main(): Promise<void> {
 
       const first = org.members[0]!;
       const { rows: orgRows } = await pool.query<{ id: string }>(
-        'select app_create_organization($1, $2, $3::uuid) as id',
-        [org.clerkOrgId, org.legalName, memberIds[first.clerkUserId]],
+        CREATE_COMPANY_SQL,
+        createCompanyParams({
+          clerkOrgId: org.clerkOrgId,
+          legalName: org.legalName,
+          ownerUserId: memberIds[first.clerkUserId]!,
+          tradeName: org.tradeName,
+          gstin: org.gstin,
+          pan: org.pan,
+          stateCode: org.stateCode,
+        }),
       );
       const orgId = orgRows[0]!.id;
-
-      await pool.query(
-        `update organizations
-            set trade_name = $2, pan = $3, state_code = $4, updated_at = now()
-          where id = $1`,
-        [orgId, org.tradeName, org.pan, org.stateCode],
-      );
 
       for (const m of org.members.slice(1)) {
         await pool.query(

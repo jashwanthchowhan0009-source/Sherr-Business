@@ -1,4 +1,5 @@
 import {
+  bigint,
   bigserial,
   boolean,
   date,
@@ -12,7 +13,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
-import { createdAt, orgId, pk, updatedAt } from './columns';
+import { createdAt, orgId, paise, pk, updatedAt } from './columns';
 
 /**
  * Phase 1 schema: tenancy, identity, roles, company profile, audit.
@@ -261,6 +262,310 @@ export const orgRegistrationsRelations = relations(orgRegistrations, ({ one }) =
  * Tables whose rows belong to exactly one organization, discriminated by
  * `org_id`. RLS policy is `org_id = current_setting('app.current_org_id')`.
  */
+// ════════════════════════════════════════════════════════════════════════════
+// Step B: parties, items, versioned tax rules, and the voucher core.
+//
+// Two invariants on these tables are enforced by database triggers rather than
+// here — every posted voucher balances, and a posted voucher is immutable. See
+// drizzle/0003_ledger_and_sales.sql. Application code must not assume it is the
+// only guard.
+// ════════════════════════════════════════════════════════════════════════════
+
+export const TAX_RULE_KINDS = ['gst_rate', 'tds_section', 'cess', 'other'] as const;
+export type TaxRuleKind = (typeof TAX_RULE_KINDS)[number];
+
+export const taxRules = pgTable(
+  'tax_rules',
+  {
+    id: pk(),
+    /** Null for a rule shipped with the product; set for a company override. */
+    orgId: uuid('org_id'),
+    kind: text('kind').notNull().$type<TaxRuleKind>(),
+    code: text('code').notNull(),
+    label: text('label').notNull(),
+    rateBps: integer('rate_bps'),
+    thresholdSinglePaise: paise('threshold_single_paise'),
+    thresholdAnnualPaise: paise('threshold_annual_paise'),
+    section: text('section'),
+    sectionLegacy: text('section_legacy'),
+    effectiveFrom: date('effective_from').notNull(),
+    effectiveTo: date('effective_to'),
+    /** True until a qualified professional signs the rule off. */
+    needsCaVerification: boolean('needs_ca_verification').notNull().default(true),
+    verifiedBy: text('verified_by'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    sourceNote: text('source_note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('tax_rules_lookup_idx').on(t.kind, t.code, t.effectiveFrom),
+    index('tax_rules_org_idx').on(t.orgId),
+  ],
+);
+
+export const PARTY_KINDS = ['customer', 'supplier', 'both'] as const;
+export type PartyKind = (typeof PARTY_KINDS)[number];
+
+export const parties = pgTable(
+  'parties',
+  {
+    id: pk(),
+    orgId: orgId(),
+    kind: text('kind').notNull().$type<PartyKind>(),
+    name: text('name').notNull(),
+    legalName: text('legal_name'),
+    gstin: text('gstin'),
+    pan: text('pan'),
+    stateCode: text('state_code'),
+    /**
+     * Where a supply to this party is taxed. Defaults to their own state, but
+     * an invoice may override it: the place of supply is not always the
+     * billing address.
+     */
+    placeOfSupplyStateCode: text('place_of_supply_state_code'),
+    email: text('email'),
+    phone: text('phone'),
+    billingAddress: text('billing_address'),
+    creditDays: integer('credit_days').notNull().default(0),
+    creditLimitPaise: paise('credit_limit_paise'),
+    isActive: boolean('is_active').notNull().default(true),
+    notes: text('notes'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('parties_org_kind_idx').on(t.orgId, t.kind),
+    uniqueIndex('parties_org_gstin_key').on(t.orgId, t.gstin),
+  ],
+);
+
+export const ITEM_KINDS = ['goods', 'service'] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+
+export const items = pgTable(
+  'items',
+  {
+    id: pk(),
+    orgId: orgId(),
+    code: text('code'),
+    name: text('name').notNull(),
+    kind: text('kind').notNull().default('goods').$type<ItemKind>(),
+    /** HSN for goods, SAC for services. Four to eight digits. */
+    hsnSac: text('hsn_sac'),
+    unit: text('unit').notNull().default('NOS'),
+    gstRateBps: integer('gst_rate_bps').notNull().default(0),
+    cessRateBps: integer('cess_rate_bps').notNull().default(0),
+    salePricePaise: paise('sale_price_paise'),
+    purchasePricePaise: paise('purchase_price_paise'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('items_org_code_key').on(t.orgId, t.code)],
+);
+
+export const numberSeries = pgTable(
+  'number_series',
+  {
+    id: pk(),
+    orgId: orgId(),
+    voucherType: text('voucher_type').notNull(),
+    fyLabel: text('fy_label').notNull(),
+    prefix: text('prefix').notNull(),
+    nextNumber: integer('next_number').notNull().default(1),
+    width: integer('width').notNull().default(4),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('number_series_org_type_fy_key').on(t.orgId, t.voucherType, t.fyLabel)],
+);
+
+export const VOUCHER_TYPES = [
+  'sales',
+  'purchase',
+  'receipt',
+  'payment',
+  'contra',
+  'journal',
+  'credit_note',
+  'debit_note',
+] as const;
+export type VoucherType = (typeof VOUCHER_TYPES)[number];
+
+export const VOUCHER_STATUSES = ['draft', 'posted'] as const;
+export type VoucherStatus = (typeof VOUCHER_STATUSES)[number];
+
+export const SUPPLY_TYPES = ['intra_state', 'inter_state', 'zero_rated', 'exempt'] as const;
+export type SupplyTypeValue = (typeof SUPPLY_TYPES)[number];
+
+export const vouchers = pgTable(
+  'vouchers',
+  {
+    id: pk(),
+    orgId: orgId(),
+    voucherType: text('voucher_type').notNull().$type<VoucherType>(),
+    voucherNo: text('voucher_no').notNull(),
+    fyLabel: text('fy_label').notNull(),
+    voucherDate: date('voucher_date').notNull(),
+    partyId: uuid('party_id'),
+    /**
+     * Frozen onto the voucher at posting. The states that decided CGST/SGST
+     * versus IGST must not change if the party is edited afterwards.
+     */
+    supplierStateCode: text('supplier_state_code'),
+    placeOfSupplyStateCode: text('place_of_supply_state_code'),
+    supplyType: text('supply_type').$type<SupplyTypeValue>(),
+    reference: text('reference'),
+    narration: text('narration'),
+    taxablePaise: paise('taxable_paise').notNull().default(0n),
+    cgstPaise: paise('cgst_paise').notNull().default(0n),
+    sgstPaise: paise('sgst_paise').notNull().default(0n),
+    igstPaise: paise('igst_paise').notNull().default(0n),
+    cessPaise: paise('cess_paise').notNull().default(0n),
+    roundOffPaise: paise('round_off_paise').notNull().default(0n),
+    totalPaise: paise('total_paise').notNull().default(0n),
+    status: text('status').notNull().default('draft').$type<VoucherStatus>(),
+    /** The only column a posted voucher may ever have written to it. */
+    reversedByVoucherId: uuid('reversed_by_voucher_id'),
+    reversesVoucherId: uuid('reverses_voucher_id'),
+    sourceDocumentId: uuid('source_document_id'),
+    postedAt: timestamp('posted_at', { withTimezone: true }),
+    postedBy: uuid('posted_by'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('vouchers_org_type_fy_no_key').on(t.orgId, t.voucherType, t.fyLabel, t.voucherNo),
+    index('vouchers_org_date_idx').on(t.orgId, t.voucherDate),
+    index('vouchers_org_party_idx').on(t.orgId, t.partyId),
+    index('vouchers_org_status_idx').on(t.orgId, t.status),
+  ],
+);
+
+export const voucherLines = pgTable(
+  'voucher_lines',
+  {
+    id: pk(),
+    orgId: orgId(),
+    voucherId: uuid('voucher_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemId: uuid('item_id'),
+    description: text('description').notNull(),
+    hsnSac: text('hsn_sac'),
+    unit: text('unit'),
+    /** Scaled by QTY_SCALE (10000): four decimal places, integers throughout. */
+    quantity: bigint('quantity', { mode: 'bigint' }).notNull().default(10000n),
+    unitPricePaise: paise('unit_price_paise').notNull().default(0n),
+    discountPaise: paise('discount_paise').notNull().default(0n),
+    gstRateBps: integer('gst_rate_bps').notNull().default(0),
+    cessRateBps: integer('cess_rate_bps').notNull().default(0),
+    taxablePaise: paise('taxable_paise').notNull().default(0n),
+    cgstPaise: paise('cgst_paise').notNull().default(0n),
+    sgstPaise: paise('sgst_paise').notNull().default(0n),
+    igstPaise: paise('igst_paise').notNull().default(0n),
+    cessPaise: paise('cess_paise').notNull().default(0n),
+    lineTotalPaise: paise('line_total_paise').notNull().default(0n),
+    reverseCharge: boolean('reverse_charge').notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('voucher_lines_voucher_line_key').on(t.voucherId, t.lineNo),
+    index('voucher_lines_org_idx').on(t.orgId),
+  ],
+);
+
+export const TAX_HEADS = ['cgst', 'sgst', 'igst', 'cess'] as const;
+export type TaxHead = (typeof TAX_HEADS)[number];
+
+export const taxLines = pgTable(
+  'tax_lines',
+  {
+    id: pk(),
+    orgId: orgId(),
+    voucherId: uuid('voucher_id').notNull(),
+    head: text('head').notNull().$type<TaxHead>(),
+    rateBps: integer('rate_bps').notNull(),
+    taxablePaise: paise('taxable_paise').notNull(),
+    amountPaise: paise('amount_paise').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('tax_lines_voucher_idx').on(t.voucherId), index('tax_lines_org_idx').on(t.orgId)],
+);
+
+export const ledgerEntries = pgTable(
+  'ledger_entries',
+  {
+    id: pk(),
+    orgId: orgId(),
+    voucherId: uuid('voucher_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    partyId: uuid('party_id'),
+    entryDate: date('entry_date').notNull(),
+    /** Exactly one of these two is positive. Enforced by a check constraint. */
+    debitPaise: paise('debit_paise').notNull().default(0n),
+    creditPaise: paise('credit_paise').notNull().default(0n),
+    narration: text('narration'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ledger_entries_org_account_date_idx').on(t.orgId, t.accountId, t.entryDate),
+    index('ledger_entries_voucher_idx').on(t.voucherId),
+    index('ledger_entries_org_party_idx').on(t.orgId, t.partyId),
+  ],
+);
+
+export const voucherAllocations = pgTable(
+  'voucher_allocations',
+  {
+    id: pk(),
+    orgId: orgId(),
+    /** The receipt or payment. */
+    settlementVoucherId: uuid('settlement_voucher_id').notNull(),
+    /** The invoice or bill being settled. */
+    targetVoucherId: uuid('target_voucher_id').notNull(),
+    amountPaise: paise('amount_paise').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('voucher_allocations_pair_key').on(t.settlementVoucherId, t.targetVoucherId),
+    index('voucher_allocations_target_idx').on(t.targetVoucherId),
+  ],
+);
+
+export const DOCUMENT_STATUSES = [
+  'stored',
+  'extracting',
+  'extracted',
+  'needs_review',
+  'posted',
+  'rejected',
+  'superseded',
+] as const;
+export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
+
+export const documents = pgTable(
+  'documents',
+  {
+    id: pk(),
+    orgId: orgId(),
+    storageKey: text('storage_key').notNull(),
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    byteSize: bigint('byte_size', { mode: 'bigint' }).notNull(),
+    /** SHA-256 of the bytes: the duplicate gate, before anything is read. */
+    contentHash: text('content_hash').notNull(),
+    /** What the uploader said it is. AI classification arrives in step H. */
+    declaredType: text('declared_type'),
+    status: text('status').notNull().default('stored').$type<DocumentStatus>(),
+    uploadedBy: uuid('uploaded_by'),
+    linkedVoucherId: uuid('linked_voucher_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('documents_org_created_idx').on(t.orgId, t.createdAt),
+    uniqueIndex('documents_org_hash_key').on(t.orgId, t.contentHash),
+  ],
+);
+
 export const TENANT_TABLES = [
   'org_registrations',
   'memberships',
@@ -268,6 +573,15 @@ export const TENANT_TABLES = [
   'audit_logs',
   'account_groups',
   'accounts',
+  'parties',
+  'items',
+  'number_series',
+  'vouchers',
+  'voucher_lines',
+  'tax_lines',
+  'ledger_entries',
+  'voucher_allocations',
+  'documents',
 ] as const;
 
 /**
@@ -283,3 +597,12 @@ export const SPECIAL_RLS_TABLES = ['organizations', 'users'] as const;
  * customer information; `schema_migrations` is DDL bookkeeping.
  */
 export const SYSTEM_TABLES = ['rate_limits', 'schema_migrations'] as const;
+
+/**
+ * `tax_rules` is the one table that deliberately holds rows visible to every
+ * tenant: a product-wide rule has `org_id = null`, and a company may add its
+ * own override. Its policy therefore admits `org_id is null or org_id =
+ * app_current_org_id()`, which the uniform tenant assertion would reject, so it
+ * gets its own test rather than being silently exempted.
+ */
+export const SHARED_REFERENCE_TABLES = ['tax_rules'] as const;

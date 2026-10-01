@@ -29,3 +29,5 @@ export const notFound = (what: string) => new AppError(`${what} not found.`, 'no
 export const rateLimited = () =>
   new AppError('Too many requests. Try again shortly.', 'rate_limited');
 export const conflict = (message: string) => new AppError(message, 'conflict');
+
+export const invalidInput = (message: string) => new AppError(message, 'invalid_input');

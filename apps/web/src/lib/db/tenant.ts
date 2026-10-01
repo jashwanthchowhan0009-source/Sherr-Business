@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { appDb, type AppDb } from './pool';
 import * as schema from './schema';
+import { ACCOUNT_GROUPS, ACCOUNTS } from '@/lib/accounting/chart-of-accounts';
+import { defaultBooksStartDate } from './create-company';
 
 export type Tx = Parameters<Parameters<AppDb['transaction']>[0]>[0];
 
@@ -61,19 +63,29 @@ export async function ensureUser(input: {
   return { id: row.id };
 }
 
+/**
+ * Creates an organization with product defaults. It delegates to
+ * `createCompany` rather than calling the two-argument SQL wrapper directly,
+ * because a company without a chart of accounts cannot hold a single voucher —
+ * a seeded organization must be as usable as one created through onboarding.
+ */
 export async function createOrganization(input: {
   clerkOrgId: string;
   legalName: string;
   ownerUserId: string;
 }): Promise<{ id: string }> {
-  const rows = await appDb().execute<{ id: string }>(sql`
-    select app_create_organization(
-      ${input.clerkOrgId}, ${input.legalName}, ${input.ownerUserId}::uuid
-    ) as id
-  `);
-  const row = rows.rows[0];
-  if (!row) throw new Error('app_create_organization returned no row');
-  return { id: row.id };
+  return createCompany({
+    ...input,
+    tradeName: null,
+    gstin: null,
+    pan: null,
+    stateCode: null,
+    registrationType: 'regular',
+    fyStartMonth: 4,
+    booksStartDate: defaultBooksStartDate(),
+    accountGroups: ACCOUNT_GROUPS,
+    accounts: ACCOUNTS,
+  });
 }
 
 export interface CreateCompanyInput {
