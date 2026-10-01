@@ -138,7 +138,7 @@ describe('GST returns', () => {
 
     await owner.query(
       `insert into org_registrations (org_id, kind, number, state_code)
-       values ($1, 'gstin', '29AABCS1234A1Z5', '29')
+       values ($1, 'gstin', '29AABCS1234A1ZX', '29')
        on conflict (org_id, kind, number) do nothing`,
       [fx.orgA],
     );
@@ -581,7 +581,7 @@ describe('GST returns', () => {
         period: '062025',
         portalInvoices: [
           {
-            supplierGstin: '36AABCU9603R1ZM',
+            supplierGstin: '36AABCU9603R1ZO',
             supplierName: 'A supplier not in these books',
             invoiceNo: 'NOT-IN-BOOKS/1',
             invoiceDate: '2025-06-20',

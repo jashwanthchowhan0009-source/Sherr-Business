@@ -87,7 +87,7 @@ const addRegistrationAction = defineAction({
   capability: 'registration:write',
   input: registrationSchema.refine(
     (v) => v.kind !== 'gstin' || GSTIN.test(v.number),
-    { message: 'GSTIN must be 15 characters, e.g. 29AABCS1234A1Z5', path: ['number'] },
+    { message: 'GSTIN must be 15 characters, e.g. 29AABCS1234A1ZX', path: ['number'] },
   ),
   handler: async ({ tx, orgId, input, audit }) => {
     const [row] = await tx

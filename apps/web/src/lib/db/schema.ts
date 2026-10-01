@@ -850,6 +850,48 @@ export const periodLocks = pgTable(
   (t) => [uniqueIndex('period_locks_org_key').on(t.orgId)],
 );
 
+/**
+ * What a model said about a document, what our checks made of it, and what a
+ * person decided.
+ *
+ * All three are kept. The figures that reach the ledger come from `reviewed`, but
+ * the question an audit trail is asked six months later is not "what is the
+ * number" — it is "where did this come from and who agreed to it", and only the
+ * model's own reply alongside the reviewed values answers that.
+ */
+export const documentExtractions = pgTable(
+  'document_extractions',
+  {
+    id: pk(),
+    orgId: orgId(),
+    documentId: uuid('document_id').notNull(),
+    /** Who answered, and under which prompt. */
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    status: text('status').notNull().default('pending'),
+    failureReason: text('failure_reason'),
+    /** The model's claims. Amounts are strings: claims, not accounting values. */
+    extracted: jsonb('extracted'),
+    rawResponse: jsonb('raw_response'),
+    /** Our own findings and recomputed totals. */
+    validation: jsonb('validation'),
+    /** What the reviewer settled on. Null until somebody has looked. */
+    reviewed: jsonb('reviewed'),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    /** The draft voucher it became. A draft — approving never posts. */
+    voucherId: uuid('voucher_id'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('document_extractions_org_created_idx').on(t.orgId, t.createdAt),
+    index('document_extractions_document_idx').on(t.orgId, t.documentId),
+  ],
+);
+
 export const TENANT_TABLES = [
   'org_registrations',
   'memberships',
@@ -876,6 +918,7 @@ export const TENANT_TABLES = [
   'goods_receipts',
   'goods_receipt_lines',
   'gstr2b_uploads',
+  'document_extractions',
 ] as const;
 
 /**

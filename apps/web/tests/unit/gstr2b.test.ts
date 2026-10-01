@@ -81,7 +81,7 @@ describe('normalisePortalDate', () => {
 describe('parseGstr2b', () => {
   const portalJson = {
     data: {
-      gstin: '29aabcs1234a1z5',
+      gstin: '29aabcs1234a1zx',
       rtnprd: '062025',
       docdata: {
         b2b: [
@@ -137,7 +137,7 @@ describe('parseGstr2b', () => {
 
   it('reads the period and our own GSTIN, upper-cased', () => {
     expect(parsed.period).toBe('062025');
-    expect(parsed.gstin).toBe('29AABCS1234A1Z5');
+    expect(parsed.gstin).toBe('29AABCS1234A1ZX');
   });
 
   it('sums the rate blocks on one invoice', () => {

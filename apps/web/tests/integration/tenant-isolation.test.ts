@@ -24,7 +24,7 @@ describe('tenant isolation', () => {
 
     // One row of each tenant kind in BOTH organizations, written as owner.
     for (const [orgId, gstin, email] of [
-      [fx.orgA, '29AABCS1234A1Z5', 'invitee-a@test.invalid'],
+      [fx.orgA, '29AABCS1234A1ZX', 'invitee-a@test.invalid'],
       [fx.orgB, '27AABCB5678B1Z3', 'invitee-b@test.invalid'],
     ] as const) {
       await owner.query(
@@ -175,11 +175,18 @@ describe('tenant isolation', () => {
            insert into goods_receipt_lines (org_id, grn_id, line_no, description, quantity, unit)
            select $1, grn.id, 1, 'Fixture line', 10000, 'NOS' from grn
            returning id
+         ), g2b as (
+           insert into gstr2b_uploads (org_id, period, period_from, period_to, stated_gstin,
+                                        invoice_count, invoices)
+           values ($1, '062025', date '2025-06-01', date '2025-06-30', $2,
+                   1, '[{"invoiceNo":"FIXTURE"}]'::jsonb)
+           returning id
          )
-         insert into gstr2b_uploads (org_id, period, period_from, period_to, stated_gstin,
-                                      invoice_count, invoices)
-         values ($1, '062025', date '2025-06-01', date '2025-06-30', $2,
-                 1, '[{"invoiceNo":"FIXTURE"}]'::jsonb)`,
+         insert into document_extractions (org_id, document_id, provider, model,
+                                            prompt_version, status, extracted)
+         select $1, doc.id, 'fixture-provider', 'fixture-model', 'v1', 'succeeded',
+                '{"kind":"purchase_invoice"}'::jsonb
+           from doc`,
         [orgId, orgId === fx.orgA ? '29AAACP1234A1Z8' : '27AAACQ5678B1Z4'],
       );
     }

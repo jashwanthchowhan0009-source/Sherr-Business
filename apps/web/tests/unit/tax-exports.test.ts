@@ -27,7 +27,7 @@ function supply(over: Partial<ReturnSupply> = {}): ReturnSupply {
     voucherType: 'sales',
     voucherDate: '2025-06-10',
     partyName: 'Acme Traders',
-    partyGstin: '36AABCU9603R1ZM',
+    partyGstin: '36AABCU9603R1ZO',
     placeOfSupplyStateCode: '36',
     supplyType: 'intra_state',
     taxablePaise: 100_000_00n,
@@ -159,7 +159,7 @@ describe('gstr1Export', () => {
     expect(text).toContain('B2B');
     expect(text).toContain('INV/2025-26/0001');
     expect(text).toContain('Acme Traders');
-    expect(text).toContain('36AABCU9603R1ZM');
+    expect(text).toContain('36AABCU9603R1ZO');
     // ₹1,00,000 taxable and ₹9,000 of each half.
     expect(text).toContain('100000.00');
     expect(text).toContain('9000.00');
@@ -253,7 +253,7 @@ describe('gstr2bExport', () => {
       period: '062025',
       portalInvoices: [
         {
-          supplierGstin: '36AABCU9603R1ZM',
+          supplierGstin: '36AABCU9603R1ZO',
           supplierName: 'Acme Traders',
           invoiceNo: 'A/1',
           invoiceDate: '2025-06-05',
@@ -281,7 +281,7 @@ describe('gstr2bExport', () => {
       period: null,
       portalInvoices: [
         {
-          supplierGstin: '36AABCU9603R1ZM',
+          supplierGstin: '36AABCU9603R1ZO',
           supplierName: 'Acme',
           invoiceNo: 'A/1',
           invoiceDate: '2025-06-05',
