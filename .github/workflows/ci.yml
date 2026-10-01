@@ -120,6 +120,13 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # A year of transactions through every report, each figure cross-checked
+      # against an independent path to it. This found GSTR-3B under-declaring
+      # reverse-charge tax, which 1,000 passing unit tests had not, so it runs on
+      # every push rather than by hand.
+      - name: End-to-end check with sample data
+        run: pnpm e2e:check
+
   e2e:
     name: End to end
     runs-on: ubuntu-latest
