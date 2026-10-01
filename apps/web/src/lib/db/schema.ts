@@ -927,7 +927,35 @@ export const TENANT_TABLES = [
  * but their policies differ in shape, so they get their own assertions in
  * tests/integration/tenant-isolation.test.ts.
  */
-export const SPECIAL_RLS_TABLES = ['organizations', 'users'] as const;
+/**
+ * The screen lock's PIN. Per user, hashed with a per-user salt.
+ */
+export const userPins = pgTable('user_pins', {
+  userId: uuid('user_id').primaryKey(),
+  pinHash: text('pin_hash').notNull(),
+  salt: text('salt').notNull(),
+  failedAttempts: integer('failed_attempts').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A live unlock. The browser holds the token; this holds its hash. */
+export const pinUnlocks = pgTable(
+  'pin_unlocks',
+  {
+    id: pk(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [index('pin_unlocks_user_idx').on(t.userId)],
+);
+
+/** Isolated by user rather than by organization. */
+export const SPECIAL_RLS_TABLES = ['organizations', 'users', 'user_pins', 'pin_unlocks'] as const;
 
 /**
  * Not tenant data. `rate_limits` holds counters keyed by actor and carries no

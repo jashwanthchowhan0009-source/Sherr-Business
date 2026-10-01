@@ -10,7 +10,8 @@ export class AppError extends Error {
       | 'not_found'
       | 'invalid_input'
       | 'rate_limited'
-      | 'conflict',
+      | 'conflict'
+      | 'screen_locked',
   ) {
     super(message);
     this.name = 'AppError';
@@ -31,3 +32,7 @@ export const rateLimited = () =>
 export const conflict = (message: string) => new AppError(message, 'conflict');
 
 export const invalidInput = (message: string) => new AppError(message, 'invalid_input');
+
+/** The six-digit screen lock is on. The caller must enter it again. */
+export const screenLocked = () =>
+  new AppError('Enter your PIN to continue.', 'screen_locked');

@@ -68,9 +68,26 @@ describe('server action guard', () => {
   });
 
   it('keeps defineAccountAction to the operations that genuinely predate an org', () => {
-    // It is the weaker factory: no capability check, no tenant transaction. If
-    // it spreads beyond onboarding, mutations start escaping those guarantees.
+    // It is the weaker factory: no capability check, no tenant transaction, and
+    // no screen-lock check. If it spreads, mutations start escaping all three.
+    //
+    // Two modules qualify, and only two. Creating a company runs before any
+    // organization exists. The screen lock runs before one is reachable — and
+    // must: an unlock action behind the unlock check could never be called.
     const users = files.filter((f) => readFileSync(f, 'utf8').includes('defineAccountAction('));
-    expect(users.map((f) => f.split('/').pop())).toEqual(['onboarding.ts']);
+    expect(users.map((f) => f.split('/').pop()).sort()).toEqual(['onboarding.ts', 'screen-lock.ts']);
+  });
+
+  it('lets nothing but the lock itself out of the screen-lock check', () => {
+    // Every other action goes through defineAction, where the unlock is
+    // verified. This is the assertion that keeps the lock a lock: without it,
+    // moving one mutation to the weaker factory would quietly exempt it.
+    const exempt = files
+      .filter((f) => readFileSync(f, 'utf8').includes('defineAccountAction('))
+      .map((f) => f.split('/').pop());
+    for (const name of exempt) {
+      expect(['onboarding.ts', 'screen-lock.ts'], `${name} is exempt from the screen lock`)
+        .toContain(name);
+    }
   });
 });
