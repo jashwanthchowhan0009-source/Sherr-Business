@@ -1,12 +1,15 @@
+import { Fragment } from 'react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Band, EmptyState, Panel, StatusPill, Table, ui } from '@/components/ui';
 import { fiscalYearOf } from '@/lib/accounting/fiscal-year';
 import { formatRupees, paise } from '@/lib/money';
 import { STATE_CODES } from '@/lib/india/gstin';
 import { getCompany } from '@/server/queries';
-import { getDayBook, getRegister, getTrialBalance } from '@/server/reports';
+import { getDayBook, getFinancialStatements, getRegister, getTrialBalance } from '@/server/reports';
 import { getBankAccounts, getReconciliation } from '@/server/banking-queries';
 import { getThreeWayMatches } from '@/server/procurement-queries';
+import { can } from '@/lib/auth/permissions';
+import { ClosingStockForm, PeriodLockForm } from './ClosingControls';
 import { EXCEPTION_LABELS } from '@/lib/banking/three-way-match';
 import { withContext } from '../_guard';
 
@@ -38,6 +41,8 @@ export default async function OutputPage() {
       getBankAccounts(ctx),
     ]);
 
+    const statements = await getFinancialStatements(ctx, { from: fy.startDate, to: today });
+
     const threeWay = await getThreeWayMatches(ctx, 20);
 
     const reconciliations = await Promise.all(
@@ -58,6 +63,268 @@ export default async function OutputPage() {
           title="Output"
           subtitle={`Reports for ${fy.longLabel}, as at ${today}. Every figure traces to a voucher.`}
         />
+
+        {/* Closing stock and the period lock come first because everything
+            below depends on them: gross profit is wrong by the value of the
+            warehouse until stock is entered, and every figure is provisional
+            until the period is closed. */}
+        <Band>Closing the books</Band>
+        <Panel title="Closing stock">
+          <ClosingStockForm
+            fyEndDate={fy.endDate}
+            alreadyEntered={statements.closingStockEntered}
+            readOnly={!can(ctx.role, 'closing:write')}
+          />
+        </Panel>
+        <div style={{ marginTop: 20 }}>
+          <Panel title="Period lock">
+            <PeriodLockForm
+              lockedUpto={statements.lockedUpto}
+              suggestedDate={fy.endDate}
+              mayLock={can(ctx.role, 'period:lock')}
+              mayUnlock={can(ctx.role, 'period:unlock')}
+            />
+          </Panel>
+        </div>
+
+        <Band>Profit and loss</Band>
+        <Panel
+          title={`${fy.longLabel}, to ${today}`}
+          note={
+            statements.periodClosed
+              ? 'The period is closed, so these figures cannot change.'
+              : 'Provisional — the period is open and these figures can still change.'
+          }
+        >
+          {!statements.closingStockEntered ? (
+            <p className={ui.hint} style={{ marginTop: 0 }}>
+              <StatusPill status="draft">Incomplete</StatusPill>{' '}
+              Closing stock has not been entered, so gross profit is understated by the value of
+              the stock still held. Enter it above before relying on any profit figure.
+            </p>
+          ) : null}
+
+          <table className={ui.table}>
+            <tbody>
+              {statements.profitAndLoss.income.map((section) => (
+                <tr key={section.line}>
+                  <td>
+                    {section.label}
+                    <div className={ui.hint}>
+                      {section.accounts.map((a) => a.name).join(', ')}
+                    </div>
+                  </td>
+                  <td className={`${ui.right} tnum`}>{formatRupees(paise(section.amountPaise))}</td>
+                </tr>
+              ))}
+              <tr>
+                <td><b>Total income</b></td>
+                <td className={`${ui.right} tnum`}>
+                  <b>{formatRupees(paise(statements.profitAndLoss.totalIncomePaise))}</b>
+                </td>
+              </tr>
+              {statements.profitAndLoss.expenses.map((section) => (
+                <tr key={section.line}>
+                  <td>
+                    {section.label}
+                    <div className={ui.hint}>
+                      {section.accounts.map((a) => a.name).join(', ')}
+                    </div>
+                  </td>
+                  <td className={`${ui.right} tnum`}>{formatRupees(paise(section.amountPaise))}</td>
+                </tr>
+              ))}
+              <tr>
+                <td><b>Total expenses</b></td>
+                <td className={`${ui.right} tnum`}>
+                  <b>{formatRupees(paise(statements.profitAndLoss.totalExpensePaise))}</b>
+                </td>
+              </tr>
+              <tr>
+                <td className={ui.hint}>Gross profit, after purchases and stock</td>
+                <td className={`${ui.right} tnum`}>
+                  {formatRupees(paise(statements.profitAndLoss.grossProfitPaise))}
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <b>Profit before tax</b>
+                  <div className={ui.hint}>
+                    No tax provision is computed. This product does not calculate your tax
+                    liability.
+                  </div>
+                </td>
+                <td className={ui.right}>
+                  <div className="tnum" style={{ fontSize: 20 }}>
+                    {formatRupees(paise(statements.profitAndLoss.profitBeforeTaxPaise))}
+                  </div>
+                  <StatusPill status={statements.periodClosed ? 'verified' : 'provisional'}>
+                    {statements.periodClosed ? 'Verified' : 'Provisional'}
+                  </StatusPill>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p className={ui.hint} style={{ marginTop: 12 }}>
+            Lines follow Schedule III. The mapping of accounts onto those lines is a reading of the
+            schedule, not professional advice, and needs CA verification.
+          </p>
+        </Panel>
+
+        <Band>Balance sheet</Band>
+        <Panel
+          title={`As at ${today}`}
+          note={
+            statements.balanceSheet.differencePaise === 0n
+              ? 'Balances exactly.'
+              : `Out by ${formatRupees(paise(statements.balanceSheet.differencePaise))} — investigate before relying on anything here.`
+          }
+        >
+          <div className={ui.formGrid}>
+            <div>
+              <p className={ui.label}>Equity and liabilities</p>
+              <table className={ui.table}>
+                <tbody>
+                  {statements.balanceSheet.equityAndLiabilities.map((section) => (
+                    <tr key={section.line}>
+                      <td>
+                        {section.label}
+                        <div className={ui.hint}>
+                          {section.accounts.map((a) => a.name).join(', ')}
+                        </div>
+                      </td>
+                      <td className={`${ui.right} tnum`}>
+                        {formatRupees(paise(section.amountPaise))}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td><b>Total</b></td>
+                    <td className={`${ui.right} tnum`}>
+                      <b>
+                        {formatRupees(paise(statements.balanceSheet.totalEquityAndLiabilitiesPaise))}
+                      </b>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <p className={ui.label}>Assets</p>
+              <table className={ui.table}>
+                <tbody>
+                  {statements.balanceSheet.assets.map((section) => (
+                    <tr key={section.line}>
+                      <td>
+                        {section.label}
+                        <div className={ui.hint}>
+                          {section.accounts.map((a) => a.name).join(', ')}
+                        </div>
+                      </td>
+                      <td className={`${ui.right} tnum`}>
+                        {formatRupees(paise(section.amountPaise))}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td><b>Total</b></td>
+                    <td className={`${ui.right} tnum`}>
+                      <b>{formatRupees(paise(statements.balanceSheet.totalAssetsPaise))}</b>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {statements.balanceSheet.unclassified.length > 0 ? (
+            <p className={ui.hint} style={{ marginTop: 14 }}>
+              These accounts could not be placed on a Schedule III line and are excluded from the
+              totals above, which is why the sheet shows a difference:{' '}
+              {statements.balanceSheet.unclassified.map((u) => u.name).join(', ')}.
+            </p>
+          ) : null}
+
+          <p className={ui.hint} style={{ marginTop: 12 }}>
+            Reserves include {formatRupees(paise(statements.balanceSheet.profitCarriedPaise))} of
+            profit accumulated and not yet transferred to retained earnings.
+          </p>
+        </Panel>
+
+        <Band>Cash flow</Band>
+        <Panel
+          title={`${fy.startDate} to ${today}, indirect method`}
+          note={
+            statements.cashFlow.differencePaise === 0n
+              ? 'Ties to the movement in cash and bank.'
+              : `Does not tie: out by ${formatRupees(paise(statements.cashFlow.differencePaise))}.`
+          }
+        >
+          <table className={ui.table}>
+            <tbody>
+              {(
+                [
+                  ['Operating activities', statements.cashFlow.operating, statements.cashFlow.netOperatingPaise],
+                  ['Investing activities', statements.cashFlow.investing, statements.cashFlow.netInvestingPaise],
+                  ['Financing activities', statements.cashFlow.financing, statements.cashFlow.netFinancingPaise],
+                ] as const
+              ).map(([heading, items, net]) =>
+                items.length === 0 ? null : (
+                  <Fragment key={heading}>
+                    <tr>
+                      <td colSpan={2} className={ui.label} style={{ paddingTop: 14 }}>
+                        {heading}
+                      </td>
+                    </tr>
+                    {items.map((item, i) => (
+                      <tr key={i}>
+                        <td style={{ paddingLeft: 18 }}>{item.label}</td>
+                        <td className={`${ui.right} tnum`}>
+                          {formatRupees(paise(item.amountPaise))}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td><b>Net cash from {heading.toLowerCase()}</b></td>
+                      <td className={`${ui.right} tnum`}><b>{formatRupees(paise(net))}</b></td>
+                    </tr>
+                  </Fragment>
+                ),
+              )}
+              <tr>
+                <td><b>Net change in cash</b></td>
+                <td className={`${ui.right} tnum`}>
+                  <b>{formatRupees(paise(statements.cashFlow.netChangePaise))}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>Cash and bank at the start</td>
+                <td className={`${ui.right} tnum`}>
+                  {formatRupees(paise(statements.cashFlow.openingCashPaise))}
+                </td>
+              </tr>
+              <tr>
+                <td>Cash and bank at the end</td>
+                <td className={`${ui.right} tnum`}>
+                  {formatRupees(paise(statements.cashFlow.closingCashPaise))}
+                </td>
+              </tr>
+              <tr>
+                <td>Difference</td>
+                <td className={ui.right}>
+                  <StatusPill status={statements.cashFlow.differencePaise === 0n ? 'verified' : 'draft'}>
+                    {formatRupees(paise(statements.cashFlow.differencePaise))}
+                  </StatusPill>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p className={ui.hint} style={{ marginTop: 12 }}>
+            A difference here would mean an account&rsquo;s movement was not classified into
+            operating, investing or financing — a gap in the mapping rather than a rounding error.
+          </p>
+        </Panel>
 
         <Band>Trial balance</Band>
         <Panel

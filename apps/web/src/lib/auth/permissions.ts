@@ -43,6 +43,13 @@ export const CAPABILITIES = [
   'bank:reconcile',
   'procurement:read',
   'procurement:write',
+
+  // Step F: closing the books. Locking a period is the act that turns a
+  // provisional figure into a settled one, so it sits with the owner alone —
+  // an accountant maintains the books, the owner decides they are final.
+  'period:lock',
+  'period:unlock',
+  'closing:write',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -87,6 +94,9 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'bank:reconcile',
     'procurement:read',
     'procurement:write',
+    // An accountant enters closing stock; that is bookkeeping. Deciding the
+    // period is closed is not.
+    'closing:write',
   ],
   ca_reviewer: [
     'org:read',
