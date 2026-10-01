@@ -415,6 +415,13 @@ export const vouchers = pgTable(
     placeOfSupplyStateCode: text('place_of_supply_state_code'),
     supplyType: text('supply_type').$type<SupplyTypeValue>(),
     reference: text('reference'),
+    /**
+     * The supplier's own invoice number, from their document. Distinct from
+     * `voucherNo`, which is ours: only the supplier's can detect the same bill
+     * entered twice, which is the most expensive data-entry error in payables.
+     */
+    supplierInvoiceNo: text('supplier_invoice_no'),
+    supplierInvoiceDate: date('supplier_invoice_date'),
     narration: text('narration'),
     taxablePaise: paise('taxable_paise').notNull().default(0n),
     cgstPaise: paise('cgst_paise').notNull().default(0n),
@@ -607,6 +614,25 @@ export const documents = pgTable(
   ],
 );
 
+/**
+ * Period locking. Step F locks periods properly; the table exists from step C
+ * so the voucher-date trigger has somewhere to read from, and so the later
+ * change adds behaviour rather than schema to a table holding real vouchers.
+ */
+export const periodLocks = pgTable(
+  'period_locks',
+  {
+    id: pk(),
+    orgId: orgId(),
+    /** Nothing dated on or before this may be posted. */
+    lockedUpto: date('locked_upto').notNull(),
+    reason: text('reason'),
+    lockedBy: uuid('locked_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('period_locks_org_key').on(t.orgId)],
+);
+
 export const TENANT_TABLES = [
   'org_registrations',
   'memberships',
@@ -623,6 +649,7 @@ export const TENANT_TABLES = [
   'ledger_entries',
   'voucher_allocations',
   'documents',
+  'period_locks',
 ] as const;
 
 /**

@@ -178,3 +178,20 @@ export async function getDataCounts(ctx: RequestContext) {
     };
   });
 }
+
+/**
+ * The date the books are locked to, or null when nothing is locked.
+ *
+ * Read by every voucher form so the date field can refuse a closed period
+ * before the server does. The database refuses it regardless; this is so the
+ * person is told before they fill the rest of the form in.
+ */
+export async function getPeriodLock(ctx: RequestContext): Promise<string | null> {
+  if (!can(ctx.role, 'voucher:read')) throw forbidden('view the books');
+  return withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+    const { rows } = await tx.execute<{ locked_upto: string }>(
+      sql`select locked_upto::text from period_locks limit 1`,
+    );
+    return rows[0]?.locked_upto ?? null;
+  });
+}

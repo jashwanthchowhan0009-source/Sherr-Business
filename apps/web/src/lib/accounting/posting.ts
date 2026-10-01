@@ -236,3 +236,157 @@ export function reverseEntries(entries: readonly PostingEntry[]): readonly Posti
     })),
   );
 }
+
+/**
+ * A credit note against a customer: a sales return, or an agreed reduction.
+ *
+ *   Dr Sales Returns                 the taxable value coming back
+ *   Dr Output CGST/SGST/IGST/Cess    reversing the liability we had raised
+ *     Cr Sundry Debtors              reducing what the customer owes
+ *     Cr/Dr Round Off
+ *
+ * The tax goes to the same Output accounts as the invoice did, on the opposite
+ * side, rather than to a separate "output tax reversed" ledger: the GSTR-1
+ * figure for a period is output tax net of credit notes, and splitting it
+ * across two accounts would mean reassembling it at return time.
+ */
+export function creditNoteEntries(note: GstInvoiceResult): readonly PostingEntry[] {
+  const entries: PostingEntry[] = [
+    { accountCode: 'SALES_RETURNS', debitPaise: note.taxablePaise, creditPaise: 0n },
+  ];
+
+  for (const [field, accountCode] of Object.entries(OUTPUT_TAX_ACCOUNTS)) {
+    const amount = note[field as keyof typeof OUTPUT_TAX_ACCOUNTS];
+    if (amount > 0n) entries.push({ accountCode, debitPaise: amount, creditPaise: 0n });
+  }
+
+  entries.push({
+    accountCode: 'SUNDRY_DEBTORS',
+    debitPaise: 0n,
+    creditPaise: note.totalPaise,
+    withParty: true,
+  });
+  entries.push(...signed('ROUND_OFF', note.roundOffPaise, 'Rounded to the nearest rupee'));
+
+  return assertBalanced(entries);
+}
+
+/**
+ * A debit note to a supplier: a purchase return, or a short-supply claim.
+ *
+ *   Dr Sundry Creditors              reducing what we owe
+ *     Cr Purchase Returns            the taxable value going back
+ *     Cr Input CGST/SGST/IGST/Cess   giving up the credit we had claimed
+ *     Cr/Dr Round Off
+ */
+export function debitNoteEntries(note: GstInvoiceResult): readonly PostingEntry[] {
+  const entries: PostingEntry[] = [
+    {
+      accountCode: 'SUNDRY_CREDITORS',
+      debitPaise: note.totalPaise,
+      creditPaise: 0n,
+      withParty: true,
+    },
+    { accountCode: 'PURCHASE_RETURNS', debitPaise: 0n, creditPaise: note.taxablePaise },
+  ];
+
+  for (const [field, accountCode] of Object.entries(INPUT_TAX_ACCOUNTS)) {
+    const amount = note[field as keyof typeof INPUT_TAX_ACCOUNTS];
+    if (amount > 0n) entries.push({ accountCode, debitPaise: 0n, creditPaise: amount });
+  }
+
+  entries.push(...signed('ROUND_OFF', -note.roundOffPaise, 'Rounded to the nearest rupee'));
+
+  return assertBalanced(entries);
+}
+
+export interface JournalLineInput {
+  accountCode: string;
+  debitPaise: bigint;
+  creditPaise: bigint;
+  narration?: string;
+}
+
+/**
+ * A journal: free-form lines, whatever accounts the entry needs.
+ *
+ * This is the one voucher where the accounts are not decided by the engine, so
+ * it is the one that most needs the balance check — and it gets exactly the same
+ * one. Two lines minimum, because a single-sided journal is not an entry; a
+ * blank line is dropped rather than refused, since a form with spare rows is
+ * normal.
+ */
+export function journalEntries(lines: readonly JournalLineInput[]): readonly PostingEntry[] {
+  const used = lines.filter((l) => l.debitPaise !== 0n || l.creditPaise !== 0n);
+  if (used.length < 2) {
+    throw new RangeError('A journal needs at least two lines: something debited and something credited');
+  }
+  return assertBalanced(
+    used.map((l) => ({
+      accountCode: l.accountCode,
+      debitPaise: l.debitPaise,
+      creditPaise: l.creditPaise,
+      ...(l.narration ? { narration: l.narration } : {}),
+    })),
+  );
+}
+
+/**
+ * A contra: money moved between the company's own cash and bank accounts.
+ *
+ * Separate from a journal because it is the entry most often made and most
+ * often made wrong, and because restricting both sides to cash and bank
+ * accounts is the whole safeguard. A contra that touched a revenue account
+ * would be a disguised sale.
+ */
+export function contraEntries(input: {
+  fromAccountCode: string;
+  toAccountCode: string;
+  amountPaise: bigint;
+}): readonly PostingEntry[] {
+  if (input.amountPaise <= 0n) throw new RangeError('A contra must move a positive amount');
+  if (input.fromAccountCode === input.toAccountCode) {
+    throw new RangeError('A contra must move between two different accounts');
+  }
+  return assertBalanced([
+    { accountCode: input.toAccountCode, debitPaise: input.amountPaise, creditPaise: 0n },
+    { accountCode: input.fromAccountCode, debitPaise: 0n, creditPaise: input.amountPaise },
+  ]);
+}
+
+/**
+ * The liability a reverse-charge purchase creates.
+ *
+ * On a reverse-charge supply the supplier charges no tax, so `gst.ts` returns
+ * zero on the line and the bill's own entries carry none. The recipient still
+ * owes the tax and may still claim it, which is two postings of the same
+ * amount:
+ *
+ *   Dr Input CGST/SGST/IGST    the credit we may claim
+ *     Cr Output CGST/SGST/IGST the tax we owe the government
+ *
+ * It is raised as its own voucher rather than folded into the bill, because the
+ * bill must show what the supplier's document shows. Nothing here invents an
+ * amount: the caller passes the tax computed by the engine from the bill's own
+ * taxable value and rate.
+ */
+export function reverseChargeLiabilityEntries(input: {
+  cgstPaise: bigint;
+  sgstPaise: bigint;
+  igstPaise: bigint;
+}): readonly PostingEntry[] {
+  const entries: PostingEntry[] = [];
+  for (const [head, amount] of [
+    ['CGST', input.cgstPaise],
+    ['SGST', input.sgstPaise],
+    ['IGST', input.igstPaise],
+  ] as const) {
+    if (amount === 0n) continue;
+    entries.push({ accountCode: `INPUT_${head}`, debitPaise: amount, creditPaise: 0n });
+    entries.push({ accountCode: `OUTPUT_${head}`, debitPaise: 0n, creditPaise: amount });
+  }
+  if (entries.length === 0) {
+    throw new RangeError('A reverse-charge liability of zero is not an entry');
+  }
+  return assertBalanced(entries);
+}

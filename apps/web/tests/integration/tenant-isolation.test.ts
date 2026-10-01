@@ -118,10 +118,16 @@ describe('tenant isolation', () => {
            insert into voucher_allocations (org_id, settlement_voucher_id, target_voucher_id, amount_paise)
            select $1, receipt.id, invoice.id, 118000 from receipt, invoice
            returning id
+         ), doc as (
+           insert into documents (org_id, storage_key, original_filename, mime_type, byte_size, content_hash)
+           values ($1, 'test/' || $1 || '/doc.pdf', 'doc.pdf', 'application/pdf', 1024,
+                   encode(digest($1::text, 'sha256'), 'hex'))
+           returning id
          )
-         insert into documents (org_id, storage_key, original_filename, mime_type, byte_size, content_hash)
-         values ($1, 'test/' || $1 || '/doc.pdf', 'doc.pdf', 'application/pdf', 1024,
-                 encode(digest($1::text, 'sha256'), 'hex'))`,
+         -- Dated well before anything the suites post, so the lock exists for
+         -- the isolation assertions without closing the books under them.
+         insert into period_locks (org_id, locked_upto, reason)
+         values ($1, date '2000-03-31', 'Fixture row')`,
         [orgId, orgId === fx.orgA ? '29AAACP1234A1Z8' : '27AAACQ5678B1Z4'],
       );
     }

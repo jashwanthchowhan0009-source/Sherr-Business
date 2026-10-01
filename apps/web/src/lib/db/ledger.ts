@@ -88,6 +88,8 @@ export interface CreateVoucherInput {
   placeOfSupplyStateCode: string | null;
   supplyType: SupplyTypeValue | null;
   reference: string | null;
+  supplierInvoiceNo?: string | null;
+  supplierInvoiceDate?: string | null;
   narration: string | null;
   calculation: GstInvoiceResult | null;
   lines: readonly VoucherLineInput[];
@@ -95,6 +97,8 @@ export interface CreateVoucherInput {
   /** Total the voucher settles for, when there is no GST calculation. */
   totalPaise?: bigint;
   sourceDocumentId?: string | null;
+  /** Set on a reversal, naming the voucher it cancels. */
+  reversesVoucherId?: string | null;
 }
 
 export interface CreatedVoucher {
@@ -118,17 +122,19 @@ export async function createVoucher(tx: Tx, input: CreateVoucherInput): Promise<
     insert into vouchers (
       org_id, voucher_type, voucher_no, fy_label, voucher_date, party_id,
       supplier_state_code, place_of_supply_state_code, supply_type,
-      reference, narration,
+      reference, supplier_invoice_no, supplier_invoice_date, narration,
       taxable_paise, cgst_paise, sgst_paise, igst_paise, cess_paise,
-      round_off_paise, total_paise, status, source_document_id
+      round_off_paise, total_paise, status, source_document_id, reverses_voucher_id
     ) values (
       app_current_org_id(), ${input.voucherType}, ${input.voucherNo}, ${input.fyLabel},
       ${input.voucherDate}::date, ${input.partyId}::uuid,
       ${input.supplierStateCode}, ${input.placeOfSupplyStateCode}, ${input.supplyType},
-      ${input.reference}, ${input.narration},
+      ${input.reference}, ${input.supplierInvoiceNo ?? null},
+      ${input.supplierInvoiceDate ?? null}::date, ${input.narration},
       ${calc?.taxablePaise ?? 0n}, ${calc?.cgstPaise ?? 0n}, ${calc?.sgstPaise ?? 0n},
       ${calc?.igstPaise ?? 0n}, ${calc?.cessPaise ?? 0n}, ${calc?.roundOffPaise ?? 0n},
-      ${totalPaise}, 'draft', ${input.sourceDocumentId ?? null}::uuid
+      ${totalPaise}, 'draft', ${input.sourceDocumentId ?? null}::uuid,
+      ${input.reversesVoucherId ?? null}::uuid
     ) returning id
   `);
   const voucher = rows[0];
@@ -345,4 +351,86 @@ export async function allocateReceipt(
   }
 
   return { allocatedPaise: input.amountPaise - remaining, unallocatedPaise: remaining };
+}
+
+/**
+ * Reads a posted voucher's ledger entries back as postings, by account code.
+ *
+ * Used to build a reversal. The entries are read from the database rather than
+ * recomputed from the voucher's amounts, so a reversal undoes what was actually
+ * posted — including anything a later version of the engine would now compute
+ * differently. That is the point of a reversal: it cancels the original, not a
+ * fresh opinion of what the original should have been.
+ */
+export async function voucherPostings(
+  tx: Tx,
+  voucherId: string,
+): Promise<readonly PostingEntry[]> {
+  const { rows } = await tx.execute<{
+    code: string;
+    debit: string;
+    credit: string;
+    party_id: string | null;
+    narration: string | null;
+  }>(sql`
+    select a.code, l.debit_paise::text as debit, l.credit_paise::text as credit,
+           l.party_id, l.narration
+      from ledger_entries l
+      join accounts a on a.id = l.account_id
+     where l.voucher_id = ${voucherId}::uuid
+     order by l.created_at, a.code
+  `);
+
+  return rows.map((r) => ({
+    accountCode: r.code,
+    debitPaise: BigInt(r.debit),
+    creditPaise: BigInt(r.credit),
+    ...(r.party_id ? { withParty: true as const } : {}),
+    ...(r.narration ? { narration: r.narration } : {}),
+  }));
+}
+
+/**
+ * Finds a posted bill already entered with the same supplier reference.
+ *
+ * The unique index in 0004 is what actually prevents the duplicate, including
+ * against a concurrent second entry. This exists so the person entering it gets
+ * told which bill it clashes with rather than a constraint name.
+ */
+export async function findDuplicateBill(
+  tx: Tx,
+  input: { partyId: string; supplierInvoiceNo: string; fyLabel: string },
+): Promise<{ id: string; voucherNo: string; voucherDate: string; totalPaise: bigint } | null> {
+  const { rows } = await tx.execute<{
+    id: string;
+    voucher_no: string;
+    voucher_date: string;
+    total_paise: string;
+  }>(sql`
+    select id, voucher_no, voucher_date::text, total_paise::text
+      from vouchers
+     where party_id = ${input.partyId}::uuid
+       and upper(supplier_invoice_no) = upper(${input.supplierInvoiceNo})
+       and fy_label = ${input.fyLabel}
+       and voucher_type in ('purchase', 'debit_note')
+       and status = 'posted'
+     limit 1
+  `);
+  const row = rows[0];
+  return row
+    ? {
+        id: row.id,
+        voucherNo: row.voucher_no,
+        voucherDate: row.voucher_date,
+        totalPaise: BigInt(row.total_paise),
+      }
+    : null;
+}
+
+/** The date the books are locked to, or null when nothing is locked. */
+export async function lockedUpto(tx: Tx): Promise<string | null> {
+  const { rows } = await tx.execute<{ locked_upto: string }>(sql`
+    select locked_upto::text from period_locks limit 1
+  `);
+  return rows[0]?.locked_upto ?? null;
 }
