@@ -12,6 +12,10 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 60_000,
   },
+  // The PDF renderer is authored as TSX. Vitest's transform defaults to the
+  // classic JSX runtime, which expects React in scope; Next uses the automatic
+  // one, so the test environment is told to match the application.
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
