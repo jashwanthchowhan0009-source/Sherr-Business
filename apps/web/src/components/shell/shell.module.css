@@ -11,8 +11,15 @@
   flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
   background: var(--sb-lift-3); border: 1px solid var(--sb-hairline);
   display: grid; place-items: center;
-  font-family: var(--sb-font); font-weight: 500; font-size: 17px; color: #e8a33c;
+  /* The glyph is square and the circle crops its corners. That is deliberate:
+     the eye sits at the centre, so what the circle takes is outer claw. */
+  overflow: hidden;
+  transition: box-shadow .18s;
 }
+.mark img { display: block; }
+/* Focus is left to the global :focus-visible rule in globals.css, which already
+   draws an accent ring on everything focusable. */
+.mark:hover { box-shadow: 0 0 0 3px rgba(255,255,255,.10); }
 .cmd {
   flex: 1; min-width: 0; height: 42px; border-radius: var(--sb-r-pill);
   background: var(--sb-surface); color: var(--sb-on-surface-2);
