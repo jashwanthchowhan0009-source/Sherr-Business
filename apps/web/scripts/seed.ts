@@ -34,7 +34,7 @@ const ORGS: SeedOrg[] = [
     tradeName: `${MOCK} Balaji Traders`,
     pan: 'AABCS1234A',
     stateCode: '29',
-    gstin: '29AABCS1234A1Z5',
+    gstin: '29AABCS1234A1ZX',
     tan: 'BLRS12345B',
     members: [
       { clerkUserId: 'user_mock_owner_a', email: 'owner@balaji.mock', name: 'Mock Owner (Balaji)', role: 'owner' },
@@ -49,7 +49,7 @@ const ORGS: SeedOrg[] = [
     tradeName: `${MOCK} Meridian`,
     pan: 'AABCM9876B',
     stateCode: '27',
-    gstin: '27AABCM9876B1Z3',
+    gstin: '27AABCM9876B1Z9',
     tan: 'MUMM54321C',
     members: [
       { clerkUserId: 'user_mock_owner_b', email: 'owner@meridian.mock', name: 'Mock Owner (Meridian)', role: 'owner' },

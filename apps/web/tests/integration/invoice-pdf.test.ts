@@ -14,7 +14,7 @@ const base: InvoicePdfInput = {
   company: {
     legalName: 'Sample Traders Private Limited',
     tradeName: 'Sample Traders',
-    gstin: '29AABCS1234A1Z5',
+    gstin: '29AABCS1234A1ZX',
     pan: 'AABCS1234A',
     stateCode: '29',
   },
@@ -133,7 +133,7 @@ describe('invoice PDF', () => {
   });
 
   it('names both GSTINs and the place of supply', () => {
-    expect(text).toContain('29AABCS1234A1Z5');
+    expect(text).toContain('29AABCS1234A1ZX');
     expect(text).toContain('29AAACA1111A1Z7');
     expect(text).toContain('Karnataka');
   });

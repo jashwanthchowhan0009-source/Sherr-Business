@@ -802,6 +802,36 @@ export const goodsReceiptLines = pgTable(
 );
 
 /**
+ * A GSTR-2B file downloaded from the portal.
+ *
+ * The parsed invoices are kept, not only the reconciliation, so the comparison
+ * can be re-run against the books as they stand later: what the portal said is a
+ * fact about the portal, what the books say is a fact about the books, and the
+ * difference between them moves as bills are entered.
+ */
+export const gstr2bUploads = pgTable(
+  'gstr2b_uploads',
+  {
+    id: pk(),
+    orgId: orgId(),
+    documentId: uuid('document_id'),
+    /** The period as the portal states it: '062025'. */
+    period: text('period'),
+    periodFrom: date('period_from').notNull(),
+    periodTo: date('period_to').notNull(),
+    /** Our GSTIN as the file states it, so a file for another company is caught. */
+    statedGstin: text('stated_gstin'),
+    invoiceCount: integer('invoice_count').notNull().default(0),
+    problemCount: integer('problem_count').notNull().default(0),
+    /** Amounts held as strings, so no figure passes through a float. */
+    invoices: jsonb('invoices').notNull().default([]),
+    uploadedBy: uuid('uploaded_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('gstr2b_uploads_org_period_idx').on(t.orgId, t.periodFrom)],
+);
+
+/**
  * Period locking. Step F locks periods properly; the table exists from step C
  * so the voucher-date trigger has somewhere to read from, and so the later
  * change adds behaviour rather than schema to a table holding real vouchers.
@@ -818,6 +848,48 @@ export const periodLocks = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('period_locks_org_key').on(t.orgId)],
+);
+
+/**
+ * What a model said about a document, what our checks made of it, and what a
+ * person decided.
+ *
+ * All three are kept. The figures that reach the ledger come from `reviewed`, but
+ * the question an audit trail is asked six months later is not "what is the
+ * number" — it is "where did this come from and who agreed to it", and only the
+ * model's own reply alongside the reviewed values answers that.
+ */
+export const documentExtractions = pgTable(
+  'document_extractions',
+  {
+    id: pk(),
+    orgId: orgId(),
+    documentId: uuid('document_id').notNull(),
+    /** Who answered, and under which prompt. */
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    status: text('status').notNull().default('pending'),
+    failureReason: text('failure_reason'),
+    /** The model's claims. Amounts are strings: claims, not accounting values. */
+    extracted: jsonb('extracted'),
+    rawResponse: jsonb('raw_response'),
+    /** Our own findings and recomputed totals. */
+    validation: jsonb('validation'),
+    /** What the reviewer settled on. Null until somebody has looked. */
+    reviewed: jsonb('reviewed'),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    /** The draft voucher it became. A draft — approving never posts. */
+    voucherId: uuid('voucher_id'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('document_extractions_org_created_idx').on(t.orgId, t.createdAt),
+    index('document_extractions_document_idx').on(t.orgId, t.documentId),
+  ],
 );
 
 export const TENANT_TABLES = [
@@ -845,6 +917,8 @@ export const TENANT_TABLES = [
   'purchase_order_lines',
   'goods_receipts',
   'goods_receipt_lines',
+  'gstr2b_uploads',
+  'document_extractions',
 ] as const;
 
 /**

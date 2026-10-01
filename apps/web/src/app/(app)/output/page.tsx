@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import Link from 'next/link';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Band, EmptyState, Panel, StatusPill, Table, ui } from '@/components/ui';
 import { fiscalYearOf } from '@/lib/accounting/fiscal-year';
@@ -63,6 +64,14 @@ export default async function OutputPage() {
           title="Output"
           subtitle={`Reports for ${fy.longLabel}, as at ${today}. Every figure traces to a voucher.`}
         />
+
+        {/* Returns live on their own page: they are a different job from reading
+            the books, done once a month rather than continuously, and putting
+            them here would bury the trial balance under six tax tables. */}
+        <p className={ui.hint} style={{ marginTop: -8, marginBottom: 20 }}>
+          <Link href="/output/taxation">Returns and deductions →</Link> GSTR-1, GSTR-3B with the
+          set-off working, GSTR-2B reconciliation, TDS, and the tax rule register.
+        </p>
 
         {/* Closing stock and the period lock come first because everything
             below depends on them: gross profit is wrong by the value of the

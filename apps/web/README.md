@@ -170,6 +170,56 @@ A missing `DATABASE_URL_OWNER` fails the build rather than skipping quietly: dep
 
 Server actions and route handlers run on the Node runtime because `pg` cannot run on Edge. Middleware is Edge and deliberately never touches the database.
 
+## Reading documents with AI
+
+Optional. Without it the inbox stores documents and nothing reads them; every bill
+can still be entered by hand from the Process page. The feature degrades, the
+product does not.
+
+### Getting a key
+
+1. Go to <https://aistudio.google.com/apikey> and sign in with a Google account.
+2. **Create API key**, and pick a project (a new one is fine).
+3. Copy the key. It is shown once.
+4. Add it where the app runs:
+   - locally, `GEMINI_API_KEY=...` in `apps/web/.env.local`
+   - on Vercel, Project → Settings → Environment Variables → `GEMINI_API_KEY`,
+     ticked for Production, then redeploy (environment variables are read at
+     build and boot, so an existing deployment will not pick it up)
+5. Optionally `GEMINI_MODEL` to override the default `gemini-2.5-flash`.
+
+### On the free tier, use demo documents only
+
+A free-tier key comes with terms that allow the content sent to it to be used to
+improve the service. **Do not send a real client's papers through a free key.** Use
+your own sample invoices while evaluating; for real books, use a paid key and read
+the current terms yourself. The Input page carries this warning where the button is.
+
+### What the model is and is not allowed to do
+
+The rule the whole feature rests on is that **the model never produces a number that
+reaches the ledger.** It is asked to transcribe, in as many words told not to compute
+or correct anything, and every amount it returns is a *string* — a claim about a
+document rather than an accounting value. What happens to that claim:
+
+- our own parser turns the text into integer paise;
+- our own GST engine recomputes the tax from the rate and the taxable value;
+- the result is compared with the totals printed on the document, and a
+  disagreement becomes a finding for a person, never a figure to prefer;
+- a person edits whatever they want and approves;
+- approving creates a **draft** voucher. Nothing in this path calls `postVoucher`,
+  so no figure enters the books until somebody posts it deliberately.
+
+A GSTIN is checked against its own check digit, so a misread one is caught by
+arithmetic rather than by eye. A document on which this company is neither the
+supplier nor the buyer is refused outright.
+
+Swapping provider is one file: implement `ExtractionProvider` from
+`src/lib/ai/contract.ts` and return it from `src/lib/ai/registry.ts`. That registry
+is deliberately *not* part of the `'use server'` module — an override exported from
+one would itself be a server action, which would let a browser choose where these
+documents are sent.
+
 ## Tests
 
 ```bash

@@ -1,6 +1,6 @@
 'use server';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/lib/auth/action';
@@ -10,7 +10,6 @@ import {
   allocateSettlement,
   allocateVoucherNumber,
   createVoucher,
-  findDuplicateBill,
   markReversed,
   postVoucher as postVoucherRow,
   voucherPostings,
@@ -22,13 +21,12 @@ import {
   debitNoteEntries,
   journalEntries,
   paymentEntries,
-  purchaseBillEntries,
-  reverseChargeLiabilityEntries,
   reverseEntries,
 } from '@/lib/accounting/posting';
 import { fyLabelFor } from '@/lib/accounting/fiscal-year';
 import { parseQuantity, parseRupees } from '@/lib/accounting/units';
 import { conflict, invalidInput, notFound } from '@/lib/errors';
+import { enterPurchaseBill } from '@/lib/db/purchase-bill';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date');
 const stateCode = z.string().trim().regex(/^[0-9]{2}$/, 'State code is two digits');
@@ -118,119 +116,23 @@ const createPurchaseBillAction = defineAction({
   capability: 'voucher:draft',
   input: purchaseBillSchema,
   rateLimit: { limit: 60, windowSeconds: 60 },
-  handler: async ({ tx, orgId, input, userId, audit }) => {
-    const company = await companyContext(tx, orgId);
-
-    const [party] = await tx
-      .select()
-      .from(parties)
-      .where(and(eq(parties.id, input.partyId), eq(parties.isActive, true)));
-    if (!party) throw notFound('That supplier does not exist in this company.');
-
-    const fyLabel = fyLabelFor(input.voucherDate, company.fyStartMonth);
-
-    const duplicate = await findDuplicateBill(tx, {
-      partyId: party.id,
-      supplierInvoiceNo: input.supplierInvoiceNo,
-      fyLabel,
-    });
-    if (duplicate) {
-      throw conflict(
-        `${party.name} invoice ${input.supplierInvoiceNo} is already entered as ` +
-          `${duplicate.voucherNo} dated ${duplicate.voucherDate}. ` +
-          `Entering it again would mean paying it twice.`,
-      );
-    }
-
-    // On a purchase the place of supply is where WE are: we are the recipient,
-    // so the supply is taxed in our state unless it is an import.
-    const placeOfSupply = input.placeOfSupplyStateCode || company.stateCode;
-    const supplyType = determineSupplyType({
-      supplierStateCode: party.stateCode ?? company.stateCode,
-      placeOfSupplyStateCode: placeOfSupply,
-    });
-
-    const lines = mapLines(input.lines);
-    const calculation = calculateInvoice(lines, supplyType);
-    const entries = purchaseBillEntries(calculation);
-
-    const voucherNo = await allocateVoucherNumber(tx, {
-      voucherType: 'purchase',
-      fyLabel,
-      prefix: 'BILL',
-    });
-
-    const created = await createVoucher(tx, {
-      voucherType: 'purchase',
-      voucherNo,
-      fyLabel,
+  handler: async ({ tx, input, userId, audit }) => {
+    // The work itself lives in enterPurchaseBill, because approving a document the
+    // AI read reaches the same code. A bill entered by hand and the same bill
+    // approved from its PDF must produce the same voucher.
+    const created = await enterPurchaseBill(tx, {
+      partyId: input.partyId,
       voucherDate: input.voucherDate,
-      partyId: party.id,
-      supplierStateCode: party.stateCode ?? null,
-      placeOfSupplyStateCode: placeOfSupply,
-      supplyType,
-      reference: input.supplierInvoiceNo,
       supplierInvoiceNo: input.supplierInvoiceNo,
       supplierInvoiceDate: input.supplierInvoiceDate,
+      placeOfSupplyStateCode: input.placeOfSupplyStateCode || null,
       narration: input.narration || null,
-      calculation,
-      lines,
-      entries,
+      lines: mapLines(input.lines),
+      post: input.post,
+      poId: input.poId || null,
+      grnId: input.grnId || null,
+      userId,
     });
-
-    // Tie the bill to its order and receipt so the three-way match can compare
-    // all three. Both are optional: not every purchase goes through an order.
-    if (input.poId || input.grnId) {
-      await tx.execute(sql`
-        update vouchers
-           set po_id = ${input.poId || null}::uuid, grn_id = ${input.grnId || null}::uuid
-         where id = ${created.id}::uuid and status = 'draft'
-      `);
-    }
-
-    if (input.post) await postVoucherRow(tx, { voucherId: created.id, userId });
-
-    // A reverse-charge bill carries no tax from the supplier, but we still owe
-    // it. The liability is a separate voucher so the bill keeps showing what
-    // the supplier's document shows. The amount comes from the engine applied
-    // to the same taxable value — nothing here invents a figure.
-    let reverseChargeVoucherNo: string | null = null;
-    const reverseChargeLines = input.lines.filter((l) => l.reverseCharge);
-    if (reverseChargeLines.length > 0 && input.post) {
-      const asIfTaxed = calculateInvoice(
-        mapLines(reverseChargeLines).map((l) => ({ ...l, reverseCharge: false })),
-        supplyType,
-      );
-      if (asIfTaxed.totalTaxPaise > 0n) {
-        const rcNo = await allocateVoucherNumber(tx, {
-          voucherType: 'journal',
-          fyLabel,
-          prefix: 'RCM',
-        });
-        const rc = await createVoucher(tx, {
-          voucherType: 'journal',
-          voucherNo: rcNo,
-          fyLabel,
-          voucherDate: input.voucherDate,
-          partyId: party.id,
-          supplierStateCode: null,
-          placeOfSupplyStateCode: null,
-          supplyType: null,
-          reference: created.voucherNo,
-          narration: `Reverse charge on ${created.voucherNo} — tax payable by us as recipient`,
-          calculation: null,
-          lines: [],
-          entries: reverseChargeLiabilityEntries({
-            cgstPaise: asIfTaxed.cgstPaise,
-            sgstPaise: asIfTaxed.sgstPaise,
-            igstPaise: asIfTaxed.igstPaise,
-          }),
-          totalPaise: asIfTaxed.totalTaxPaise,
-        });
-        await postVoucherRow(tx, { voucherId: rc.id, userId });
-        reverseChargeVoucherNo = rc.voucherNo;
-      }
-    }
 
     await audit({
       action: input.post ? 'voucher.purchase.posted' : 'voucher.purchase.drafted',
@@ -238,12 +140,12 @@ const createPurchaseBillAction = defineAction({
       subjectId: created.id,
       after: {
         voucherNo: created.voucherNo,
-        supplierName: party.name,
+        supplierName: created.partyName,
         supplierInvoiceNo: input.supplierInvoiceNo,
-        supplyType,
-        taxablePaise: calculation.taxablePaise.toString(),
-        totalPaise: calculation.totalPaise.toString(),
-        reverseChargeVoucherNo,
+        supplyType: created.supplyType,
+        taxablePaise: created.taxablePaise.toString(),
+        totalPaise: created.totalPaise.toString(),
+        reverseChargeVoucherNo: created.reverseChargeVoucherNo,
         status: input.post ? 'posted' : 'draft',
       },
     });
@@ -255,7 +157,7 @@ const createPurchaseBillAction = defineAction({
       voucherNo: created.voucherNo,
       totalPaise: created.totalPaise.toString(),
       posted: input.post,
-      reverseChargeVoucherNo,
+      reverseChargeVoucherNo: created.reverseChargeVoucherNo,
     };
   },
 });

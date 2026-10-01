@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check:no-float": "tsx scripts/check-no-float.ts"
+    "check:no-float": "tsx scripts/check-no-float.ts",
+    "e2e:check": "tsx --conditions=react-server scripts/e2e-check.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.34.0",

@@ -72,7 +72,7 @@ export function PartyForm() {
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
             maxLength={15}
             autoComplete="off"
-            placeholder="29AABCS1234A1Z5"
+            placeholder="29AABCS1234A1ZX"
             style={{ fontFamily: 'ui-monospace, monospace' }}
             aria-describedby="party-gstin-hint"
           />

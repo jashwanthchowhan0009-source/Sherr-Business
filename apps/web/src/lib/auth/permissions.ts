@@ -50,6 +50,13 @@ export const CAPABILITIES = [
   'period:lock',
   'period:unlock',
   'closing:write',
+
+  // Step H: the AI inbox. Reading a document with a model is its own capability
+  // because it is its own decision: it sends the document to a third party and it
+  // costs money. Approving what the model read needs 'voucher:draft' as well,
+  // since an approval produces a draft voucher — approving is bookkeeping, and
+  // nothing about an AI reading a file changes who may enter a transaction.
+  'document:extract',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -88,6 +95,7 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'voucher:post',
     'document:read',
     'document:upload',
+    'document:extract',
     'taxrule:read',
     'bank:read',
     'bank:import',
