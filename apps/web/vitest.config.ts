@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    include: [
+      'tests/unit/**/*.test.ts',
+      'tests/integration/**/*.test.ts',
+      // Component tests need a DOM, so they get their own environment below.
+      'tests/ui/**/*.test.tsx',
+    ],
+    environmentMatchGlobs: [['tests/ui/**', 'jsdom']],
     setupFiles: ['tests/setup.ts'],
     // Integration tests share one Postgres database and create/drop rows;
     // running files in parallel would make them flake against each other.
