@@ -6,6 +6,8 @@ import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/lib/auth/action';
 import { accounts, organizations, parties, vouchers } from '@/lib/db/schema';
 import {
+  allocatePayment,
+  allocateSettlement,
   allocateVoucherNumber,
   createVoucher,
   findDuplicateBill,
@@ -293,6 +295,16 @@ const createPaymentAction = defineAction({
       entries: paymentEntries({ amountPaise, fromAccountCode: input.fromAccountCode }),
       totalPaise: amountPaise,
     });
+
+    // Oldest bill first, so payables ageing means something. Anything beyond
+    // what is outstanding stays unallocated as an advance to the supplier.
+    const allocation = await allocatePayment(tx, {
+      settlementVoucherId: created.id,
+      partyId: party.id,
+      amountPaise,
+      explicitTargets: [],
+    });
+
     await postVoucherRow(tx, { voucherId: created.id, userId });
 
     await audit({
@@ -304,6 +316,8 @@ const createPaymentAction = defineAction({
         supplierName: party.name,
         amountPaise: amountPaise.toString(),
         from: input.fromAccountCode,
+        allocatedPaise: allocation.allocatedPaise.toString(),
+        unallocatedPaise: allocation.unallocatedPaise.toString(),
       },
     });
 
@@ -368,6 +382,18 @@ const createCreditNoteAction = defineAction({
       lines,
       entries: creditNoteEntries(calculation),
     });
+
+    // A credit note reduces what the customer owes, so it is allocated against
+    // their open invoices exactly as a receipt is. Without this the receivable
+    // would still show the full invoice after the goods came back.
+    await allocateSettlement(tx, {
+      settlementVoucherId: created.id,
+      partyId: party.id,
+      amountPaise: calculation.totalPaise,
+      settles: 'sales',
+      explicitTargets: input.againstVoucherId ? [input.againstVoucherId] : [],
+    });
+
     await postVoucherRow(tx, { voucherId: created.id, userId });
 
     await audit({
@@ -427,6 +453,17 @@ const createDebitNoteAction = defineAction({
       lines,
       entries: debitNoteEntries(calculation),
     });
+
+    // A debit note reduces what we owe the supplier, so it is allocated against
+    // their open bills the way a payment is.
+    await allocateSettlement(tx, {
+      settlementVoucherId: created.id,
+      partyId: party.id,
+      amountPaise: calculation.totalPaise,
+      settles: 'purchase',
+      explicitTargets: input.againstVoucherId ? [input.againstVoucherId] : [],
+    });
+
     await postVoucherRow(tx, { voucherId: created.id, userId });
 
     await audit({

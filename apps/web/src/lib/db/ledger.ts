@@ -301,30 +301,41 @@ export async function markReversed(
 }
 
 /**
- * Allocates a receipt against the customer's open invoices.
+ * Allocates a receipt or a payment against the party's open documents.
  *
- * Oldest first when the caller names no invoices, which is the convention every
- * Indian accountant expects and is what makes the ageing report meaningful. A
- * receipt larger than the outstanding balance is allowed and simply leaves the
- * remainder unallocated — an advance is a real thing, and refusing it would
+ * Oldest first when the caller names no targets, which is the convention every
+ * Indian accountant expects and what makes the ageing report meaningful. A
+ * settlement larger than the outstanding balance is allowed and leaves the
+ * remainder unallocated — an advance is a real thing, and refusing one would
  * make the app unable to record a deposit.
+ *
+ * One function for both directions because the logic is identical and the only
+ * difference is which voucher type is being settled; two copies would drift,
+ * and the one that drifted would be payables, which is the one that costs money.
  */
-export async function allocateReceipt(
+export async function allocateSettlement(
   tx: Tx,
   input: {
     settlementVoucherId: string;
     partyId: string;
     amountPaise: bigint;
+    /** 'sales' for a receipt clearing invoices, 'purchase' for a payment clearing bills. */
+    settles: 'sales' | 'purchase';
     explicitTargets: readonly string[];
   },
 ): Promise<{ allocatedPaise: bigint; unallocatedPaise: bigint }> {
+  // A credit note reduces what a customer owes, and a debit note what we owe a
+  // supplier. Both are allocated through this same function when they are
+  // posted, so they appear in voucher_allocations and the outstanding figure
+  // below already nets them off. Nothing special-cases them here.
   const { rows } = await tx.execute<{ id: string; outstanding: string }>(sql`
     select v.id,
-           (v.total_paise - coalesce(sum(a.amount_paise), 0))::text as outstanding
+           (v.total_paise
+             - coalesce((select sum(a.amount_paise) from voucher_allocations a
+                          where a.target_voucher_id = v.id), 0))::text as outstanding
       from vouchers v
-      left join voucher_allocations a on a.target_voucher_id = v.id
      where v.party_id = ${input.partyId}::uuid
-       and v.voucher_type = 'sales'
+       and v.voucher_type = ${input.settles}
        and v.status = 'posted'
        and v.reversed_by_voucher_id is null
        ${
@@ -332,8 +343,9 @@ export async function allocateReceipt(
            ? sql`and v.id = any(${sql.param([...input.explicitTargets])}::uuid[])`
            : sql``
        }
-     group by v.id, v.total_paise, v.voucher_date
-    having v.total_paise - coalesce(sum(a.amount_paise), 0) > 0
+       and v.total_paise
+             - coalesce((select sum(a.amount_paise) from voucher_allocations a
+                          where a.target_voucher_id = v.id), 0) > 0
      order by v.voucher_date, v.voucher_no
   `);
 
@@ -351,6 +363,32 @@ export async function allocateReceipt(
   }
 
   return { allocatedPaise: input.amountPaise - remaining, unallocatedPaise: remaining };
+}
+
+/** Receipts settle sales invoices. */
+export async function allocateReceipt(
+  tx: Tx,
+  input: {
+    settlementVoucherId: string;
+    partyId: string;
+    amountPaise: bigint;
+    explicitTargets: readonly string[];
+  },
+): Promise<{ allocatedPaise: bigint; unallocatedPaise: bigint }> {
+  return allocateSettlement(tx, { ...input, settles: 'sales' });
+}
+
+/** Payments settle purchase bills. */
+export async function allocatePayment(
+  tx: Tx,
+  input: {
+    settlementVoucherId: string;
+    partyId: string;
+    amountPaise: bigint;
+    explicitTargets: readonly string[];
+  },
+): Promise<{ allocatedPaise: bigint; unallocatedPaise: bigint }> {
+  return allocateSettlement(tx, { ...input, settles: 'purchase' });
 }
 
 /**
