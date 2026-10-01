@@ -34,6 +34,15 @@ export const CAPABILITIES = [
   'document:upload',
   'taxrule:read',
   'taxrule:verify',
+
+  // Step E: banking. Importing a statement is separate from reconciling it,
+  // because importing changes nothing and reconciling asserts that the bank
+  // agrees with the books.
+  'bank:read',
+  'bank:import',
+  'bank:reconcile',
+  'procurement:read',
+  'procurement:write',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -73,6 +82,11 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'document:read',
     'document:upload',
     'taxrule:read',
+    'bank:read',
+    'bank:import',
+    'bank:reconcile',
+    'procurement:read',
+    'procurement:write',
   ],
   ca_reviewer: [
     'org:read',
@@ -87,6 +101,8 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'taxrule:read',
     // A CA signing off a tax rule is the whole point of the reviewer role.
     'taxrule:verify',
+    'bank:read',
+    'procurement:read',
   ],
   viewer: [
     'org:read',
@@ -98,6 +114,8 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'voucher:read',
     'document:read',
     'taxrule:read',
+    'bank:read',
+    'procurement:read',
   ],
 };
 

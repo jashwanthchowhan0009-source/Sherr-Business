@@ -118,10 +118,62 @@ describe('tenant isolation', () => {
            insert into voucher_allocations (org_id, settlement_voucher_id, target_voucher_id, amount_paise)
            select $1, receipt.id, invoice.id, 118000 from receipt, invoice
            returning id
+         ), doc as (
+           insert into documents (org_id, storage_key, original_filename, mime_type, byte_size, content_hash)
+           values ($1, 'test/' || $1 || '/doc.pdf', 'doc.pdf', 'application/pdf', 1024,
+                   encode(digest($1::text, 'sha256'), 'hex'))
+           returning id
+         -- The lock is dated well before anything the suites post, so it exists
+         -- for the isolation assertions without closing the books under them.
+         ), lock as (
+           insert into period_locks (org_id, locked_upto, reason)
+           values ($1, date '2000-03-31', 'Fixture row')
+           returning id
+         ), bank as (
+           insert into bank_accounts (org_id, ledger_account_id, bank_name, account_label,
+                                      account_number_last4, ifsc)
+           select $1, a.id, 'Fixture Bank', 'Current', '0001', 'FIXT0000001'
+             from accounts a where a.org_id = $1 and a.code = 'BANK'
+           returning id
+         ), stmt as (
+           insert into bank_statements (org_id, bank_account_id, period_from, period_to,
+                                        opening_balance_paise, closing_balance_paise, line_count)
+           select $1, bank.id, date '2025-06-01', date '2025-06-30', 0, 100000, 1
+             from bank
+           returning id
+         ), stmt_line as (
+           insert into bank_statement_lines (org_id, statement_id, bank_account_id, row_number,
+                                             line_date, narration, amount_paise, balance_paise,
+                                             fingerprint)
+           select $1, stmt.id, bank.id, 2, date '2025-06-05', 'Fixture deposit', 100000, 100000,
+                  encode(digest($1::text || 'line', 'sha256'), 'hex')
+             from stmt, bank
+           returning id
+         ), suggestion as (
+           insert into bank_match_suggestions (org_id, statement_line_id, voucher_id, tier,
+                                                confidence, reasons)
+           select $1, stmt_line.id, invoice.id, 'strong', 80, '["Fixture"]'::jsonb
+             from stmt_line, invoice
+           returning id
+         ), po as (
+           insert into purchase_orders (org_id, po_no, fy_label, po_date, party_id, total_paise)
+           select $1, 'PO/FIXTURE/0001', '25-26', date '2025-06-01', party.id, 100000
+             from party
+           returning id
+         ), po_line as (
+           insert into purchase_order_lines (org_id, po_id, line_no, description, quantity,
+                                              unit, unit_price_paise)
+           select $1, po.id, 1, 'Fixture line', 10000, 'NOS', 100000 from po
+           returning id
+         ), grn as (
+           insert into goods_receipts (org_id, grn_no, fy_label, receipt_date, party_id, po_id,
+                                        challan_no)
+           select $1, 'GRN/FIXTURE/0001', '25-26', date '2025-06-05', party.id, po.id, 'DC-1'
+             from party, po
+           returning id
          )
-         insert into documents (org_id, storage_key, original_filename, mime_type, byte_size, content_hash)
-         values ($1, 'test/' || $1 || '/doc.pdf', 'doc.pdf', 'application/pdf', 1024,
-                 encode(digest($1::text, 'sha256'), 'hex'))`,
+         insert into goods_receipt_lines (org_id, grn_id, line_no, description, quantity, unit)
+         select $1, grn.id, 1, 'Fixture line', 10000, 'NOS' from grn`,
         [orgId, orgId === fx.orgA ? '29AAACP1234A1Z8' : '27AAACQ5678B1Z4'],
       );
     }

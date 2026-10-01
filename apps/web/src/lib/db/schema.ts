@@ -415,6 +415,13 @@ export const vouchers = pgTable(
     placeOfSupplyStateCode: text('place_of_supply_state_code'),
     supplyType: text('supply_type').$type<SupplyTypeValue>(),
     reference: text('reference'),
+    /**
+     * The supplier's own invoice number, from their document. Distinct from
+     * `voucherNo`, which is ours: only the supplier's can detect the same bill
+     * entered twice, which is the most expensive data-entry error in payables.
+     */
+    supplierInvoiceNo: text('supplier_invoice_no'),
+    supplierInvoiceDate: date('supplier_invoice_date'),
     narration: text('narration'),
     taxablePaise: paise('taxable_paise').notNull().default(0n),
     cgstPaise: paise('cgst_paise').notNull().default(0n),
@@ -428,6 +435,9 @@ export const vouchers = pgTable(
     reversedByVoucherId: uuid('reversed_by_voucher_id'),
     reversesVoucherId: uuid('reverses_voucher_id'),
     sourceDocumentId: uuid('source_document_id'),
+    /** The order and receipt a bill relates to, for the three-way match. */
+    poId: uuid('po_id'),
+    grnId: uuid('grn_id'),
     postedAt: timestamp('posted_at', { withTimezone: true }),
     postedBy: uuid('posted_by'),
     createdAt: createdAt(),
@@ -607,6 +617,209 @@ export const documents = pgTable(
   ],
 );
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// Step E: bank statement import, matching and reconciliation, plus the
+// purchase order → goods receipt → bill three-way match.
+// ════════════════════════════════════════════════════════════════════════════
+
+export const bankAccounts = pgTable(
+  'bank_accounts',
+  {
+    id: pk(),
+    orgId: orgId(),
+    /** The ledger account this bank account posts to. */
+    ledgerAccountId: uuid('ledger_account_id').notNull(),
+    bankName: text('bank_name').notNull(),
+    accountLabel: text('account_label').notNull(),
+    /** Last four digits only: the full number is not needed to reconcile. */
+    accountNumberLast4: text('account_number_last4'),
+    ifsc: text('ifsc'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('bank_accounts_org_idx').on(t.orgId)],
+);
+
+export const bankStatements = pgTable(
+  'bank_statements',
+  {
+    id: pk(),
+    orgId: orgId(),
+    bankAccountId: uuid('bank_account_id').notNull(),
+    /** The uploaded file this was parsed from, so a figure traces to a document. */
+    documentId: uuid('document_id'),
+    periodFrom: date('period_from').notNull(),
+    periodTo: date('period_to').notNull(),
+    openingBalancePaise: paise('opening_balance_paise'),
+    closingBalancePaise: paise('closing_balance_paise'),
+    lineCount: integer('line_count').notNull().default(0),
+    problemCount: integer('problem_count').notNull().default(0),
+    /** Whether the statement's own running balance added up on import. */
+    balanceConsistent: boolean('balance_consistent').notNull().default(true),
+    importedBy: uuid('imported_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('bank_statements_org_account_idx').on(t.orgId, t.bankAccountId, t.periodFrom)],
+);
+
+export const BANK_LINE_STATUSES = ['unmatched', 'suggested', 'reconciled', 'ignored'] as const;
+export type BankLineStatus = (typeof BANK_LINE_STATUSES)[number];
+
+export const bankStatementLines = pgTable(
+  'bank_statement_lines',
+  {
+    id: pk(),
+    orgId: orgId(),
+    statementId: uuid('statement_id').notNull(),
+    bankAccountId: uuid('bank_account_id').notNull(),
+    rowNumber: integer('row_number').notNull(),
+    lineDate: date('line_date').notNull(),
+    narration: text('narration').notNull(),
+    reference: text('reference'),
+    /** Positive is money in, negative is money out. */
+    amountPaise: paise('amount_paise').notNull(),
+    balancePaise: paise('balance_paise'),
+    status: text('status').notNull().default('unmatched').$type<BankLineStatus>(),
+    matchedVoucherId: uuid('matched_voucher_id'),
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+    reconciledBy: uuid('reconciled_by'),
+    /** Fingerprint of the transaction, so one statement imported twice is idempotent. */
+    fingerprint: text('fingerprint').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('bank_statement_lines_fingerprint_key').on(t.orgId, t.bankAccountId, t.fingerprint),
+    index('bank_statement_lines_status_idx').on(t.orgId, t.bankAccountId, t.status, t.lineDate),
+  ],
+);
+
+export const MATCH_TIERS = ['exact', 'strong', 'probable', 'weak'] as const;
+export type MatchTierValue = (typeof MATCH_TIERS)[number];
+
+export const bankMatchSuggestions = pgTable(
+  'bank_match_suggestions',
+  {
+    id: pk(),
+    orgId: orgId(),
+    statementLineId: uuid('statement_line_id').notNull(),
+    voucherId: uuid('voucher_id').notNull(),
+    tier: text('tier').notNull().$type<MatchTierValue>(),
+    confidence: integer('confidence').notNull(),
+    reasons: jsonb('reasons').notNull().default([]),
+    dayDifference: integer('day_difference').notNull().default(0),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by'),
+    decision: text('decision').$type<'accepted' | 'rejected'>(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('bank_match_suggestions_pair_key').on(t.statementLineId, t.voucherId),
+    index('bank_match_suggestions_org_idx').on(t.orgId),
+  ],
+);
+
+export const PO_STATUSES = ['open', 'part_received', 'received', 'closed', 'cancelled'] as const;
+export type PoStatus = (typeof PO_STATUSES)[number];
+
+/**
+ * A purchase order. Not an accounting voucher: ordering goods changes no ledger
+ * balance. It exists so a bill can be checked against what was ordered.
+ */
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    id: pk(),
+    orgId: orgId(),
+    poNo: text('po_no').notNull(),
+    fyLabel: text('fy_label').notNull(),
+    poDate: date('po_date').notNull(),
+    partyId: uuid('party_id').notNull(),
+    expectedDate: date('expected_date'),
+    narration: text('narration'),
+    totalPaise: paise('total_paise').notNull().default(0n),
+    status: text('status').notNull().default('open').$type<PoStatus>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('purchase_orders_org_no_key').on(t.orgId, t.fyLabel, t.poNo)],
+);
+
+export const purchaseOrderLines = pgTable(
+  'purchase_order_lines',
+  {
+    id: pk(),
+    orgId: orgId(),
+    poId: uuid('po_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemId: uuid('item_id'),
+    description: text('description').notNull(),
+    quantity: bigint('quantity', { mode: 'bigint' }).notNull(),
+    unit: text('unit'),
+    unitPricePaise: paise('unit_price_paise').notNull().default(0n),
+    gstRateBps: integer('gst_rate_bps').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('purchase_order_lines_po_line_key').on(t.poId, t.lineNo)],
+);
+
+/** A goods receipt against a supplier's delivery challan. */
+export const goodsReceipts = pgTable(
+  'goods_receipts',
+  {
+    id: pk(),
+    orgId: orgId(),
+    grnNo: text('grn_no').notNull(),
+    fyLabel: text('fy_label').notNull(),
+    receiptDate: date('receipt_date').notNull(),
+    partyId: uuid('party_id').notNull(),
+    poId: uuid('po_id'),
+    /** The supplier's challan number, from their document. */
+    challanNo: text('challan_no'),
+    challanDate: date('challan_date'),
+    narration: text('narration'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('goods_receipts_org_no_key').on(t.orgId, t.fyLabel, t.grnNo)],
+);
+
+export const goodsReceiptLines = pgTable(
+  'goods_receipt_lines',
+  {
+    id: pk(),
+    orgId: orgId(),
+    grnId: uuid('grn_id').notNull(),
+    poLineId: uuid('po_line_id'),
+    lineNo: integer('line_no').notNull(),
+    itemId: uuid('item_id'),
+    description: text('description').notNull(),
+    quantity: bigint('quantity', { mode: 'bigint' }).notNull(),
+    unit: text('unit'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('goods_receipt_lines_grn_line_key').on(t.grnId, t.lineNo)],
+);
+
+/**
+ * Period locking. Step F locks periods properly; the table exists from step C
+ * so the voucher-date trigger has somewhere to read from, and so the later
+ * change adds behaviour rather than schema to a table holding real vouchers.
+ */
+export const periodLocks = pgTable(
+  'period_locks',
+  {
+    id: pk(),
+    orgId: orgId(),
+    /** Nothing dated on or before this may be posted. */
+    lockedUpto: date('locked_upto').notNull(),
+    reason: text('reason'),
+    lockedBy: uuid('locked_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('period_locks_org_key').on(t.orgId)],
+);
+
 export const TENANT_TABLES = [
   'org_registrations',
   'memberships',
@@ -623,6 +836,15 @@ export const TENANT_TABLES = [
   'ledger_entries',
   'voucher_allocations',
   'documents',
+  'period_locks',
+  'bank_accounts',
+  'bank_statements',
+  'bank_statement_lines',
+  'bank_match_suggestions',
+  'purchase_orders',
+  'purchase_order_lines',
+  'goods_receipts',
+  'goods_receipt_lines',
 ] as const;
 
 /**

@@ -3,9 +3,15 @@ import { Band, EmptyState, Panel, Table, ui } from '@/components/ui';
 import { can } from '@/lib/auth/permissions';
 import { formatRupees, paise } from '@/lib/money';
 import { getCompany } from '@/server/queries';
-import { getItems, getParties, getVouchers } from '@/server/ledger-queries';
+import { getAccounts, getItems, getParties, getPeriodLock, getVouchers } from '@/server/ledger-queries';
+import { getBankAccounts, getReviewQueue } from '@/server/banking-queries';
+import { getOpenPurchaseOrders } from '@/server/procurement-queries';
 import { withContext } from '../_guard';
 import { InvoiceForm } from './InvoiceForm';
+import { PurchaseBillForm } from './PurchaseBillForm';
+import { ContraForm, JournalForm, PaymentForm, ReverseButton } from './SimpleVoucherForms';
+import { BankPanel } from './BankPanel';
+import { GoodsReceiptForm, PurchaseOrderForm } from './ProcurementForms';
 import { ItemForm } from './ItemForm';
 import { PartyForm } from './PartyForm';
 import { ReceiptForm } from './ReceiptForm';
@@ -23,16 +29,44 @@ const SUPPLY_LABELS: Record<string, string> = {
 
 export default async function ProcessPage() {
   return withContext(async (ctx) => {
-    const [{ org }, parties, items, vouchers] = await Promise.all([
+    const [{ org }, parties, items, vouchers, accounts, lockedUpto] = await Promise.all([
       getCompany(ctx),
       getParties(ctx),
       getItems(ctx),
       getVouchers(ctx, { limit: 25 }),
+      getAccounts(ctx),
+      getPeriodLock(ctx),
     ]);
 
+    const [banks, openOrders] = await Promise.all([
+      getBankAccounts(ctx),
+      getOpenPurchaseOrders(ctx),
+    ]);
+    const bankQueue = banks[0]
+      ? await getReviewQueue(ctx, { bankAccountId: banks[0].id, limit: 50 })
+      : [];
+
     const mayWrite = can(ctx.role, 'voucher:draft');
+    const mayPost = can(ctx.role, 'voucher:post');
     const customers = parties.filter((p) => p.kind === 'customer' || p.kind === 'both');
+    const suppliers = parties.filter((p) => p.kind === 'supplier' || p.kind === 'both');
     const today = new Date().toISOString().slice(0, 10);
+    const asOption = (p: (typeof parties)[number]) => ({
+      id: p.id,
+      name: p.name,
+      gstin: p.gstin,
+      stateCode: p.stateCode,
+      placeOfSupplyStateCode: p.placeOfSupplyStateCode,
+    });
+    const itemOptions = items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      hsnSac: i.hsnSac,
+      unit: i.unit,
+      gstRateBps: i.gstRateBps,
+      salePricePaise: i.salePricePaise,
+      purchasePricePaise: i.purchasePricePaise,
+    }));
 
     return (
       <>
@@ -40,6 +74,13 @@ export default async function ProcessPage() {
           title="Process"
           subtitle="Normalize, connect, validate — and record what the books must show."
         />
+
+        {lockedUpto ? (
+          <p className={ui.hint} style={{ marginBottom: 18 }}>
+            The books are locked to {lockedUpto}. Nothing dated on or before that can be posted —
+            date any correction after the lock.
+          </p>
+        ) : null}
 
         {!org?.stateCode ? (
           <Panel>
@@ -54,23 +95,11 @@ export default async function ProcessPage() {
         <Panel>
           {mayWrite ? (
             <InvoiceForm
-              parties={customers.map((p) => ({
-                id: p.id,
-                name: p.name,
-                gstin: p.gstin,
-                stateCode: p.stateCode,
-                placeOfSupplyStateCode: p.placeOfSupplyStateCode,
-              }))}
-              items={items.map((i) => ({
-                id: i.id,
-                name: i.name,
-                hsnSac: i.hsnSac,
-                unit: i.unit,
-                gstRateBps: i.gstRateBps,
-                salePricePaise: i.salePricePaise,
-              }))}
+              parties={customers.map(asOption)}
+              items={itemOptions}
               supplierStateCode={org?.stateCode ?? null}
               today={today}
+              lockedUpto={lockedUpto}
             />
           ) : (
             <EmptyState title="Not available to your role">
@@ -93,6 +122,126 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
+        <Band>Enter a purchase bill</Band>
+        <Panel>
+          {mayWrite ? (
+            <PurchaseBillForm
+              parties={suppliers.map(asOption)}
+              items={itemOptions}
+              companyStateCode={org?.stateCode ?? null}
+              today={today}
+              lockedUpto={lockedUpto}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Your role can read the books but not write to them.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>Purchase order</Band>
+        <Panel>
+          {can(ctx.role, 'procurement:write') ? (
+            <PurchaseOrderForm
+              suppliers={suppliers.map((p) => ({ id: p.id, name: p.name }))}
+              items={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit }))}
+              today={today}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Your role can read orders but not raise them.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>What arrived</Band>
+        <Panel>
+          {can(ctx.role, 'procurement:write') ? (
+            <GoodsReceiptForm
+              suppliers={suppliers.map((p) => ({ id: p.id, name: p.name }))}
+              items={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit }))}
+              orders={openOrders.map((o) => ({ id: o.id, poNo: o.poNo, partyId: o.partyId }))}
+              today={today}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Your role can read receipts but not record them.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>Pay a supplier</Band>
+        <Panel>
+          {mayPost ? (
+            <PaymentForm
+              parties={suppliers.map((p) => ({ id: p.id, name: p.name }))}
+              today={today}
+              lockedUpto={lockedUpto}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Recording a payment posts to the books, which your role cannot do.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>Journal</Band>
+        <Panel>
+          {mayPost ? (
+            <JournalForm
+              accounts={accounts.map((a) => ({ code: a.code, name: a.name }))}
+              today={today}
+              lockedUpto={lockedUpto}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              A journal posts directly to the books, which your role cannot do.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>Contra — cash and bank</Band>
+        <Panel>
+          {mayPost ? (
+            <ContraForm today={today} lockedUpto={lockedUpto} />
+          ) : (
+            <EmptyState title="Not available to your role">
+              A contra posts to the books, which your role cannot do.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>
+          Bank statement
+          {bankQueue.length > 0 ? ` — ${bankQueue.length} awaiting a decision` : ''}
+        </Band>
+        <Panel>
+          <BankPanel
+            accounts={banks.map((b) => ({
+              id: b.id,
+              label: `${b.bankName} — ${b.accountLabel}${
+                b.accountNumberLast4 ? ` ····${b.accountNumberLast4}` : ''
+              }`,
+            }))}
+            ledgerAccounts={accounts
+              .filter((a) => a.code === 'BANK' || a.code.startsWith('BANK'))
+              .map((a) => ({ id: a.id, name: a.name }))}
+            selectedAccountId={banks[0]?.id ?? null}
+            queue={bankQueue.map((r) => ({
+              lineId: r.lineId,
+              lineDate: r.lineDate,
+              narration: r.narration,
+              reference: r.reference,
+              amountPaise: r.amountPaise.toString(),
+              status: r.status,
+              suggestion: r.suggestion
+                ? { ...r.suggestion, tier: r.suggestion.tier }
+                : null,
+            }))}
+            readOnly={!can(ctx.role, 'bank:reconcile')}
+          />
+        </Panel>
+
         <Band>{vouchers.length === 0 ? 'Vouchers' : `Vouchers — ${vouchers.length} most recent`}</Band>
         <Panel bodyless={vouchers.length > 0}>
           {vouchers.length === 0 ? (
@@ -112,6 +261,7 @@ export default async function ProcessPage() {
                   <th>Tax</th>
                   <th className={ui.right}>Total</th>
                   <th>State</th>
+                  <th />
                 </tr>
               }
             >
@@ -137,6 +287,14 @@ export default async function ProcessPage() {
                       : v.status === 'posted'
                         ? 'Posted'
                         : 'Draft'}
+                  </td>
+                  <td>
+                    {/* A posted voucher cannot be edited, so the only
+                        correction offered is a reversal. One already reversed
+                        offers nothing: a second would double the correction. */}
+                    {mayPost && v.status === 'posted' && !v.reversedByVoucherId ? (
+                      <ReverseButton voucherId={v.id} voucherNo={v.voucherNo} today={today} />
+                    ) : null}
                   </td>
                 </tr>
               ))}

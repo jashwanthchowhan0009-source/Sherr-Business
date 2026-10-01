@@ -41,7 +41,8 @@ afterEach(cleanup);
 describe('InvoiceForm', () => {
   it('asks for a customer before anything else when there are none', () => {
     render(
-      <InvoiceForm parties={[]} items={[]} supplierStateCode="29" today="2025-06-15" />,
+      <InvoiceForm parties={[]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
     );
     expect(screen.getByText(/Add a customer first/)).toBeDefined();
   });
@@ -53,6 +54,7 @@ describe('InvoiceForm', () => {
         items={[item]}
         supplierStateCode="29"
         today="2025-06-15"
+          lockedUpto={null}
       />,
     );
     expect(screen.getByLabelText('Customer')).toBeDefined();
@@ -67,6 +69,7 @@ describe('InvoiceForm', () => {
         items={[]}
         supplierStateCode="29"
         today="2025-06-15"
+          lockedUpto={null}
       />,
     );
     expect(screen.getByText(/unregistered/)).toBeDefined();
@@ -74,7 +77,8 @@ describe('InvoiceForm', () => {
 
   it('says posting is final, where someone about to post can read it', () => {
     render(
-      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15" />,
+      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
     );
     const warning = screen.getByText(/Posting is final/);
     expect(warning.textContent).toMatch(/cannot be edited or deleted/);
@@ -83,7 +87,8 @@ describe('InvoiceForm', () => {
 
   it('offers a draft as well as a post, so the two are distinct acts', () => {
     render(
-      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15" />,
+      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
     );
     expect(screen.getByRole('button', { name: 'Post invoice' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Save as draft' })).toBeDefined();
@@ -91,7 +96,8 @@ describe('InvoiceForm', () => {
 
   it('disables posting until a customer is chosen', () => {
     render(
-      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15" />,
+      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
     );
     expect(screen.getByRole('button', { name: 'Post invoice' })).toHaveProperty('disabled', true);
   });
@@ -103,6 +109,7 @@ describe('InvoiceForm', () => {
         items={[]}
         supplierStateCode="29"
         today="2025-06-15"
+          lockedUpto={null}
       />,
     );
     // The override select exists and explains what it is for.
@@ -129,6 +136,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       fill('100000');
@@ -147,6 +155,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       choose(customer.id);
@@ -170,6 +179,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       choose(outOfState.id);
@@ -189,6 +199,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       choose(customer.id);
@@ -207,6 +218,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       choose(customer.id);
@@ -226,6 +238,7 @@ describe('InvoiceForm', () => {
           items={[]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       choose(customer.id);
@@ -242,6 +255,7 @@ describe('InvoiceForm', () => {
           items={[item]}
           supplierStateCode="29"
           today="2025-06-15"
+          lockedUpto={null}
         />,
       );
       fireEvent.change(screen.getByLabelText('Item on line 1'), { target: { value: item.id } });
@@ -257,7 +271,8 @@ describe('InvoiceForm', () => {
 
   it('lists every GST slab, including nil', () => {
     render(
-      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15" />,
+      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
     );
     const select = screen.getByLabelText('GST rate on line 1') as HTMLSelectElement;
     const offered = [...select.options].map((o) => o.textContent);
