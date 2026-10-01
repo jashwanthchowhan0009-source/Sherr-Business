@@ -1,0 +1,34 @@
+.lockup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.wordmark {
+  font-family: var(--sb-font);
+  font-size: 20px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--sb-text);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--sb-text-3);
+  letter-spacing: .02em;
+}
+
+/* The hero on the landing page: the mark sits beside the words on a wide
+   screen and above them on a narrow one, where a 300px-tall mark beside
+   text would leave the text in a column four words wide. */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: clamp(20px, 5vw, 56px);
+  flex-wrap: wrap;
+}
+
+.heroMark { flex: 0 0 auto; }
+.heroText { flex: 1 1 320px; min-width: 0; }

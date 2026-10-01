@@ -1,5 +1,6 @@
 import { SignOutButton, UserProfile } from '@clerk/nextjs';
 import { Panel, ui } from '@/components/ui';
+import { LogoGlyph } from '@/components/brand/Logo';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,22 @@ export const dynamic = 'force-dynamic';
 export default function MfaGatePage() {
   return (
     <main style={{ maxWidth: 880, margin: '0 auto', padding: '10vh 16px 64px' }}>
+      {/* This page has no top bar — middleware sends people here before the
+          shell exists — so it carries the mark itself. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+        <LogoGlyph size={40} />
+        <span
+          style={{
+            fontSize: 13,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--sb-text-3)',
+          }}
+        >
+          SherrByte
+        </span>
+      </div>
+
       <h1 style={{ fontSize: 'clamp(28px,5vw,40px)', letterSpacing: '-.02em', marginBottom: 12 }}>
         Add two-factor authentication
       </h1>
