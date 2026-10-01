@@ -1,60 +1,69 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { lockScreen } from '@/server/screen-lock';
+import { claimTabUnlocked, clearTabUnlocked } from '@/lib/auth/tab-session';
+
+/** Matches IDLE_TIMEOUT_SECONDS on the server, which is the authority. */
+const IDLE_MS = 5 * 60 * 1000;
 
 /**
- * Locks the app the moment the tab stops being looked at.
+ * Locks the app when it is left alone, and when it is opened somewhere new.
  *
- * `visibilitychange` fires when the tab is switched away from, the window is
- * minimised, or the phone is locked — which is the whole list of ways a screen
- * full of somebody's books gets left in front of somebody else. On the way out
- * the unlock is revoked server-side; on the way back the page is pushed to the
- * lock screen.
+ * Deliberately **not** on every tab switch. An accountant works with the books
+ * beside a bank statement, a spreadsheet and three supplier emails, and a lock
+ * that fires on every alt-tab would be turned off within a day — which protects
+ * nothing at all. The two events worth locking on are a tab that has not been
+ * touched for five minutes, and a tab that has not been unlocked at all.
  *
- * Revoking on the way out rather than only redirecting on the way back is the
- * part that matters: by the time the tab is visible again the session is already
- * dead, so a tab restored from history, a bfcache resume, or a request fired by
- * something other than this component all meet a locked app.
- *
- * `pagehide` is there for the cases `visibilitychange` misses — Safari's
- * back-forward cache among them — and `keepalive` lets the request outlive the
- * page it was fired from.
+ * The timer here is a convenience: it ends the session promptly rather than
+ * leaving it to die on its own. The server expires an unlock five minutes after
+ * the last authenticated request regardless, so a tab with JavaScript disabled,
+ * a crashed renderer or a machine put to sleep is covered without this
+ * component's help.
  */
 export function LockOnHide() {
   const router = useRouter();
   const pathname = usePathname();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lockNow = useCallback(async () => {
+    clearTabUnlocked();
+    await lockScreen({});
+    router.replace('/lock');
+  }, [router]);
 
   useEffect(() => {
-    // The lock screen itself must not lock, or returning to the tab would
-    // cancel the PIN being typed into it.
+    // The lock screen itself must not lock, or it would clear the session the
+    // user is in the middle of re-establishing.
     if (pathname?.startsWith('/lock')) return;
 
-    let locked = false;
+    // A tab reached without unlocking in *this* tab is a new tab or a restored
+    // one. The server cookie is shared across tabs, so this is the only thing
+    // that can tell them apart.
+    // The PIN screen marks the tab on a successful unlock, so arriving here
+    // unmarked means this tab has not been through it.
+    if (!claimTabUnlocked()) {
+      void lockNow();
+      return;
+    }
 
-    const lock = () => {
-      if (locked) return;
-      locked = true;
-      void lockScreen({});
+    const reset = () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void lockNow(), IDLE_MS);
     };
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        lock();
-      } else if (locked) {
-        // Back in the tab, and the session was ended on the way out.
-        router.replace('/lock');
-      }
-    };
+    // Any of these means somebody is still there.
+    const events = ['pointerdown', 'keydown', 'scroll', 'focus'] as const;
+    for (const name of events) window.addEventListener(name, reset, { passive: true });
+    reset();
 
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', lock);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', lock);
+      for (const name of events) window.removeEventListener(name, reset);
+      if (timer.current) clearTimeout(timer.current);
     };
-  }, [pathname, router]);
+  }, [pathname, lockNow]);
 
   return null;
 }

@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
-import { attemptUnlock, hasPin, isUnlocked, revokeUnlock, savePin } from '../../src/lib/db/screen-lock';
-import { FREE_ATTEMPTS } from '../../src/lib/auth/pin';
+import {
+  attemptUnlock, hasPin, isPinLocked, isUnlocked, revokeUnlock, savePin,
+} from '../../src/lib/db/screen-lock';
+import { MAX_ATTEMPTS } from '../../src/lib/auth/pin';
 import { cleanup, ownerPool, seedTwoOrgs, type Fixture } from './_db';
 
 /**
@@ -74,37 +76,78 @@ describe('screen lock', () => {
     expect(await isUnlocked(fx.userA, opened.token)).toBe(false);
   });
 
-  it('counts failures and eventually makes the caller wait', async () => {
+  it('locks the PIN after five wrong guesses and stops accepting the right one', async () => {
     await savePin(fx.userB, PIN);
 
-    for (let i = 0; i < FREE_ATTEMPTS; i += 1) {
+    for (let i = 0; i < MAX_ATTEMPTS - 1; i += 1) {
       const result = await attemptUnlock(fx.userB, '111112');
       expect(result.ok, `attempt ${i + 1}`).toBe(false);
-      if (!result.ok) expect(result.retryAfterSeconds, `attempt ${i + 1}`).toBe(0);
+      if (!result.ok && result.reason === 'wrong') {
+        expect(result.attemptsLeft, `attempt ${i + 1}`).toBe(MAX_ATTEMPTS - i - 1);
+      }
     }
 
-    // The one after the free attempts costs time.
-    const limited = await attemptUnlock(fx.userB, '111112');
-    expect(limited.ok).toBe(false);
-    if (!limited.ok) expect(limited.retryAfterSeconds).toBeGreaterThan(0);
+    const last = await attemptUnlock(fx.userB, '111112');
+    expect(last.ok).toBe(false);
+    if (!last.ok) expect(last.reason).toBe('locked');
+    expect(await isPinLocked(fx.userB)).toBe(true);
 
-    // And the right PIN is refused too while the wait is running — otherwise
-    // the lockout would only delay somebody who keeps guessing wrong.
-    const during = await attemptUnlock(fx.userB, PIN);
-    expect(during.ok).toBe(false);
+    // The right PIN is refused too. A lock that the correct PIN opens is not a
+    // lock — it would only delay somebody who keeps guessing wrong.
+    const correct = await attemptUnlock(fx.userB, PIN);
+    expect(correct.ok).toBe(false);
+    if (!correct.ok) expect(correct.reason).toBe('locked');
   });
 
-  it('clears the count and the wait when the PIN is replaced', async () => {
+  it('clears the lock when a new PIN is set, which only re-verification allows', async () => {
     await savePin(fx.userB, '305729');
-    const { rows } = await owner.query<{ failed_attempts: number; locked_until: Date | null }>(
-      'select failed_attempts, locked_until from user_pins where user_id = $1',
+    const { rows } = await owner.query<{ failed_attempts: number; locked_at: Date | null }>(
+      'select failed_attempts, locked_at from user_pins where user_id = $1',
       [fx.userB],
     );
     expect(rows[0]!.failed_attempts).toBe(0);
-    expect(rows[0]!.locked_until).toBeNull();
+    expect(rows[0]!.locked_at).toBeNull();
+    expect(await isPinLocked(fx.userB)).toBe(false);
 
     const opened = await attemptUnlock(fx.userB, '305729');
     expect(opened.ok).toBe(true);
+  });
+
+  it('expires an unlock that has gone five minutes untouched', async () => {
+    await savePin(fx.userA, PIN);
+    const opened = await attemptUnlock(fx.userA, PIN);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(await isUnlocked(fx.userA, opened.token)).toBe(true);
+
+    // Age it past the idle window.
+    await owner.query(
+      `update pin_unlocks set last_seen_at = now() - interval '6 minutes'
+        where user_id = $1 and revoked_at is null`,
+      [fx.userA],
+    );
+    expect(await isUnlocked(fx.userA, opened.token)).toBe(false);
+  });
+
+  it('refreshes the idle clock on every check, so working keeps it open', async () => {
+    await savePin(fx.userA, PIN);
+    const opened = await attemptUnlock(fx.userA, PIN);
+    if (!opened.ok) return;
+
+    await owner.query(
+      `update pin_unlocks set last_seen_at = now() - interval '4 minutes'
+        where user_id = $1 and revoked_at is null`,
+      [fx.userA],
+    );
+    expect(await isUnlocked(fx.userA, opened.token)).toBe(true);
+
+    // That check moved it back to now, so four more minutes is still fine.
+    await owner.query(
+      `update pin_unlocks set last_seen_at = now() - interval '4 minutes'
+        where user_id = $1 and revoked_at is null`,
+      [fx.userA],
+    );
+    expect(await isUnlocked(fx.userA, opened.token)).toBe(true);
   });
 
   it('kills every live unlock when the PIN changes', async () => {

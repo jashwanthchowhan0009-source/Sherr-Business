@@ -4,7 +4,9 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { defineAccountAction } from '@/lib/auth/action';
 import { checkPinStrength, PIN_PATTERN } from '@/lib/auth/pin';
-import { attemptUnlock, hasPin, savePin } from '@/lib/db/screen-lock';
+import { attemptUnlock, hasPin, isPinLocked, resetPinAfterReverification, savePin } from '@/lib/db/screen-lock';
+import { secondFactorIsFresh } from '@/lib/auth/reverify';
+import { auditSecurityEvent } from '@/lib/audit/security';
 import { clearUnlockCookie, setUnlockCookie, unlockToken } from '@/lib/auth/unlock';
 import { revokeUnlock } from '@/lib/db/screen-lock';
 import { conflict, invalidInput } from '@/lib/errors';
@@ -35,6 +37,7 @@ const createPinAction = defineAccountAction({
     }
 
     await savePin(userId, input.pin);
+    await auditSecurityEvent({ action: 'screenlock.pin.created', subjectId: userId });
 
     // Setting it also opens the app, so nobody has to type it twice in a row.
     const opened = await attemptUnlock(userId, input.pin);
@@ -58,10 +61,25 @@ const unlockAction = defineAccountAction({
 
     if (!result.ok) {
       if (result.reason === 'no_pin') throw conflict('No PIN is set for this account yet.');
+
+      if (result.reason === 'locked') {
+        // Recorded without the attempt count or anything about the PIN: the
+        // fact of a lock is the security event, the digits never are.
+        await auditSecurityEvent({ action: 'screenlock.locked_out', subjectId: userId });
+        throw conflict(
+          'Too many wrong attempts, so the PIN is locked. Verify your second factor to set a ' +
+            'new one.',
+        );
+      }
+
+      await auditSecurityEvent({
+        action: 'screenlock.failed',
+        subjectId: userId,
+        after: { attemptsLeft: result.attemptsLeft },
+      });
       throw invalidInput(
-        result.retryAfterSeconds > 0
-          ? `Wrong PIN. Try again in ${describeWait(result.retryAfterSeconds)}.`
-          : `Wrong PIN. ${result.attemptsLeft} attempt${result.attemptsLeft === 1 ? '' : 's'} before a wait.`,
+        `Wrong PIN. ${result.attemptsLeft} attempt${result.attemptsLeft === 1 ? '' : 's'} left ` +
+          'before it locks.',
       );
     }
 
@@ -83,11 +101,46 @@ const lockAction = defineAccountAction({
   },
 });
 
-function describeWait(seconds: number): string {
-  if (seconds < 60) return `${seconds} seconds`;
-  const minutes = Math.ceil(seconds / 60);
-  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-}
+/**
+ * Sets a new PIN after the second factor has been re-verified.
+ *
+ * The only way out of a lock, and the only way to change a PIN you have
+ * forgotten. It deliberately does not ask for the old one — somebody who is
+ * locked out cannot supply it — so the whole weight rests on Clerk having
+ * verified the second factor within the last few minutes.
+ */
+const resetPinAction = defineAccountAction({
+  name: 'screenlock.pin.reset',
+  input: z.object({ pin: pinField, confirm: pinField }),
+  rateLimit: { limit: 5, windowSeconds: 3600 },
+  handler: async ({ userId, input }) => {
+    if (input.pin !== input.confirm) throw invalidInput('The two PINs do not match.');
+
+    const strength = checkPinStrength(input.pin);
+    if (!strength.ok) throw invalidInput(strength.message);
+
+    if (!(await secondFactorIsFresh())) {
+      throw conflict(
+        'Verify your second factor first. Sign out and back in with your authenticator, then ' +
+          'set the new PIN.',
+      );
+    }
+
+    const wasLocked = await isPinLocked(userId);
+    await resetPinAfterReverification(userId, input.pin);
+    await auditSecurityEvent({
+      action: 'screenlock.pin.reset',
+      subjectId: userId,
+      after: { clearedLockout: wasLocked },
+    });
+
+    const opened = await attemptUnlock(userId, input.pin);
+    if (opened.ok) await setUnlockCookie(opened.token);
+
+    revalidatePath('/', 'layout');
+    return { reset: true as const };
+  },
+});
 
 // ─── exported entry points ──────────────────────────────────────────────────
 
@@ -101,4 +154,8 @@ export async function unlockScreen(input: unknown) {
 
 export async function lockScreen(input: unknown) {
   return lockAction(input);
+}
+
+export async function resetPin(input: unknown) {
+  return resetPinAction(input);
 }

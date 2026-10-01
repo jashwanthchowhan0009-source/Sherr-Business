@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FREE_ATTEMPTS,
-  MAX_LOCKOUT_SECONDS,
+  ABSOLUTE_TIMEOUT_SECONDS,
+  IDLE_TIMEOUT_SECONDS,
+  MAX_ATTEMPTS,
+  attemptsLeft,
   checkPinStrength,
   hashPin,
-  lockoutFor,
+  isLockedOut,
   newUnlockToken,
   verifyPin,
 } from '@/lib/auth/pin';
@@ -94,30 +96,40 @@ describe('hashPin / verifyPin', () => {
   });
 });
 
-describe('lockoutFor', () => {
-  it('costs nothing for the first few, because mistyping is ordinary', () => {
-    for (let n = 0; n <= FREE_ATTEMPTS; n += 1) {
-      expect(lockoutFor(n), String(n)).toBe(0);
+describe('the lockout', () => {
+  it('allows five wrong guesses and no more', () => {
+    for (let n = 0; n < MAX_ATTEMPTS; n += 1) {
+      expect(isLockedOut(n), String(n)).toBe(false);
     }
+    expect(isLockedOut(MAX_ATTEMPTS)).toBe(true);
+    expect(isLockedOut(MAX_ATTEMPTS + 1)).toBe(true);
   });
 
-  it('doubles after that', () => {
-    expect(lockoutFor(FREE_ATTEMPTS + 1)).toBe(15);
-    expect(lockoutFor(FREE_ATTEMPTS + 2)).toBe(30);
-    expect(lockoutFor(FREE_ATTEMPTS + 3)).toBe(60);
-    expect(lockoutFor(FREE_ATTEMPTS + 4)).toBe(120);
+  it('counts down the attempts left, and stops at zero', () => {
+    expect(attemptsLeft(0)).toBe(MAX_ATTEMPTS);
+    expect(attemptsLeft(4)).toBe(1);
+    expect(attemptsLeft(5)).toBe(0);
+    expect(attemptsLeft(99)).toBe(0);
   });
 
-  it('stops at a ceiling, so nobody is locked out for ever', () => {
-    expect(lockoutFor(100)).toBe(MAX_LOCKOUT_SECONDS);
-    expect(lockoutFor(10_000)).toBe(MAX_LOCKOUT_SECONDS);
+  it('is a hard stop, not a wait', () => {
+    // A timed lockout only slows an attacker down. Five chances and then a stop
+    // means a million-guess search never reaches its sixth guess, and the way
+    // back is re-verifying the second factor rather than waiting it out.
+    expect(MAX_ATTEMPTS).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('the timeouts', () => {
+  it('ends an idle session in five minutes', () => {
+    expect(IDLE_TIMEOUT_SECONDS).toBe(5 * 60);
   });
 
-  it('makes exhausting a million PINs take years, which is the whole point', () => {
-    // A six-digit PIN is not strong. The waiting is.
-    const perGuessAtCeiling = MAX_LOCKOUT_SECONDS;
-    const years = (1_000_000 * perGuessAtCeiling) / (60 * 60 * 24 * 365);
-    expect(years).toBeGreaterThan(25);
+  it('ends any session eventually, idle or not', () => {
+    // A tab left open overnight on an active machine would otherwise never be
+    // asked again.
+    expect(ABSOLUTE_TIMEOUT_SECONDS).toBeGreaterThan(IDLE_TIMEOUT_SECONDS);
+    expect(ABSOLUTE_TIMEOUT_SECONDS).toBeLessThanOrEqual(24 * 60 * 60);
   });
 });
 

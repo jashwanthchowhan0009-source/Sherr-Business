@@ -9,8 +9,15 @@ const scrypt = promisify(scryptCb);
  * A six-digit PIN has a million combinations, which is nothing — a machine
  * allowed to guess freely exhausts it in seconds. Everything that makes this
  * worth having is therefore about limiting guesses, not about the PIN itself:
- * the hash is deliberately slow, and {@link lockoutFor} makes the tenth wrong
- * guess cost minutes rather than milliseconds.
+ * the hash is deliberately slow, and five wrong answers stop it dead.
+ *
+ * On the hash: scrypt, from Node's own crypto. It is a memory-hard password
+ * hash of the same family as argon2 and bcrypt, and OWASP lists all three as
+ * acceptable. It is used here in preference to the other two only because it
+ * needs no native module, which on a serverless deployment is one fewer thing
+ * to break at build time. Swapping in argon2 would mean changing this file and
+ * nothing else — the rest of the product only ever sees {@link hashPin} and
+ * {@link verifyPin}.
  *
  * It is a second factor in front of a session that is already authenticated, not
  * a replacement for signing in. Someone who does not know the PIN and cannot
@@ -23,11 +30,14 @@ const scrypt = promisify(scryptCb);
 /** Exactly six digits. Nothing else is a PIN. */
 export const PIN_PATTERN = /^[0-9]{6}$/;
 
-/** How many wrong guesses before the lockout starts biting. */
-export const FREE_ATTEMPTS = 4;
+/** Wrong guesses allowed before the PIN is locked outright. */
+export const MAX_ATTEMPTS = 5;
 
-/** Nobody is kept out for longer than this, however many times they fail. */
-export const MAX_LOCKOUT_SECONDS = 15 * 60;
+/** An unlock dies this long after the last authenticated request. */
+export const IDLE_TIMEOUT_SECONDS = 5 * 60;
+
+/** And this long regardless, so a tab left open all night is not still open. */
+export const ABSOLUTE_TIMEOUT_SECONDS = 12 * 60 * 60;
 
 export interface StoredPin {
   hash: string;
@@ -109,17 +119,22 @@ export async function verifyPin(pin: string, stored: StoredPin): Promise<boolean
 }
 
 /**
- * How long to refuse after `failures` consecutive wrong guesses.
+ * Whether this many wrong guesses locks the PIN.
  *
- * The first few cost nothing, because mistyping a PIN is ordinary. After that it
- * doubles: 15 seconds, 30, a minute, and so on to a quarter of an hour. At that
- * ceiling a million-guess search takes over twenty-eight years, which is the
- * whole point — the PIN is not strong, the waiting is.
+ * A hard lock rather than a lengthening wait. A timed lockout only slows an
+ * attacker down; five chances and then a stop means a million-guess search never
+ * gets past its fifth guess, and the way back is re-verifying the second factor
+ * rather than waiting. The cost is that a legitimate user who fumbles five times
+ * has to re-verify — which is a worse day than a short wait, but a better one
+ * than somebody else reading their books.
  */
-export function lockoutFor(failures: number): number {
-  if (failures <= FREE_ATTEMPTS) return 0;
-  const steps = failures - FREE_ATTEMPTS - 1;
-  return Math.min(15 * 2 ** steps, MAX_LOCKOUT_SECONDS);
+export function isLockedOut(failures: number): boolean {
+  return failures >= MAX_ATTEMPTS;
+}
+
+/** Guesses left before the lock. Zero means locked. */
+export function attemptsLeft(failures: number): number {
+  return Math.max(0, MAX_ATTEMPTS - failures);
 }
 
 /** A random, unguessable session token. Hashed before it is stored. */

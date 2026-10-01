@@ -1,10 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { SignOutButton } from '@clerk/nextjs';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { ui } from '@/components/ui';
 import { LogoMark } from '@/components/brand/Logo';
-import { createPin, unlockScreen } from '@/server/screen-lock';
+import { createPin, resetPin, unlockScreen } from '@/server/screen-lock';
+import { markTabUnlocked } from '@/lib/auth/tab-session';
 
 const DIGITS = 6;
 
@@ -75,21 +78,72 @@ function Boxes({
   );
 }
 
-export function PinPad({ mode }: { mode: 'set' | 'enter' }) {
+export type LockMode = 'set' | 'enter' | 'reset';
+
+/**
+ * What the lock screen says, by mode. Kept as data so the three paths read side
+ * by side — it was far too easy, with the copy inline, to tell somebody who is
+ * locked out to "try again".
+ */
+const COPY: Record<LockMode, { title: string; body: string; cta: string }> = {
+  set: {
+    title: 'Create your PIN',
+    body:
+      'Six digits. You will be asked for it on a new tab and after five minutes of inactivity, ' +
+      'so your books are not left open on an unattended screen.',
+    cta: 'Set PIN',
+  },
+  enter: {
+    title: 'Enter your PIN',
+    body: 'Six digits, to open your books again.',
+    cta: 'Unlock',
+  },
+  reset: {
+    title: 'Set a new PIN',
+    body:
+      'Your authenticator decides this, not the old PIN — which is the point, since a forgotten ' +
+      'or locked PIN cannot be typed in.',
+    cta: 'Set new PIN',
+  },
+};
+
+export function PinPad({
+  mode,
+  lockedOut = false,
+  reverified = false,
+  reverifyUnavailable = false,
+}: {
+  mode: LockMode;
+  /** True when five wrong attempts have already closed it. */
+  lockedOut?: boolean;
+  /** True when Clerk reports a second factor verified in the last few minutes. */
+  reverified?: boolean;
+  /**
+   * True when the session token carries no factor-verification age at all, so
+   * freshness cannot be judged. Signing in again would not change it, so the
+   * screen must not send the user round that loop.
+   */
+  reverifyUnavailable?: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const ready = mode === 'set' ? pin.length === DIGITS && confirm.length === DIGITS : pin.length === DIGITS;
+  const needsTwo = mode === 'set' || mode === 'reset';
+  const ready = needsTwo ? pin.length === DIGITS && confirm.length === DIGITS : pin.length === DIGITS;
 
   function submit() {
     if (!ready || pending) return;
     start(async () => {
       setError(null);
       const result =
-        mode === 'set' ? await createPin({ pin, confirm }) : await unlockScreen({ pin });
+        mode === 'set'
+          ? await createPin({ pin, confirm })
+          : mode === 'reset'
+            ? await resetPin({ pin, confirm })
+            : await unlockScreen({ pin });
 
       if (!result.ok) {
         setError(result.error);
@@ -97,6 +151,9 @@ export function PinPad({ mode }: { mode: 'set' | 'enter' }) {
         setConfirm('');
         return;
       }
+      // Before navigating, or the page we land on finds an unmarked tab and
+      // sends us straight back here.
+      markTabUnlocked();
       router.replace('/dashboard');
       router.refresh();
     });
@@ -108,21 +165,69 @@ export function PinPad({ mode }: { mode: 'set' | 'enter' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, mode]);
 
+  const copy = COPY[mode];
+
+  // On the reset screen with a stale second factor there is nothing to type yet:
+  // the way back is through the authenticator, so the screen says that and shows
+  // no boxes rather than collecting six digits it will have to refuse.
+  if (mode === 'reset' && !reverified) {
+    return (
+      <div className={ui.lockCard}>
+        <LogoMark height={96} priority />
+        <h1 className={ui.lockTitle}>
+          {lockedOut ? 'PIN locked' : 'Verify your authenticator'}
+        </h1>
+        <p className={ui.lockBody}>
+          {lockedOut
+            ? 'Five wrong attempts closed it. Nothing is lost — your books are untouched — but ' +
+              'only your authenticator can open it again.'
+            : 'To set a new PIN, your second factor has to be verified first.'}
+        </p>
+        {reverifyUnavailable ? (
+          <>
+            <p className={ui.lockBody}>
+              This deployment&apos;s session token does not report when the second factor was last
+              verified, so signing in again will not help. Add{' '}
+              <code>&quot;fva&quot;: &quot;{'{{'}session.factor_verification_age{'}}'}&quot;</code>{' '}
+              to the Clerk session token, or ask whoever administers it to.
+            </p>
+            <p className={ui.lockBody}>
+              Until then a locked PIN has to be cleared by an administrator. Nothing in your books
+              is affected.
+            </p>
+          </>
+        ) : (
+          <p className={ui.lockBody}>
+            Sign out, sign back in with your authenticator app, and this screen will let you choose a
+            new PIN.
+          </p>
+        )}
+
+        <div className={ui.actions} style={{ marginTop: 20, justifyContent: 'center' }}>
+          <SignOutButton>
+            <button type="button" className={ui.button}>
+              {reverifyUnavailable ? 'Sign out' : 'Sign out and verify'}
+            </button>
+          </SignOutButton>
+        </div>
+
+        <p className={ui.hint} style={{ marginTop: 18, textAlign: 'center' }}>
+          Deliberately the only way out. A reset that something else could reach would make the PIN
+          worth nothing.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className={ui.lockCard}>
       <LogoMark height={96} priority />
-      <h1 className={ui.lockTitle}>
-        {mode === 'set' ? 'Create your PIN' : 'Enter your PIN'}
-      </h1>
-      <p className={ui.lockBody}>
-        {mode === 'set'
-          ? 'Six digits. You will be asked for it whenever you come back to this tab, so your books are not left open on an unattended screen.'
-          : 'Six digits, to open your books again.'}
-      </p>
+      <h1 className={ui.lockTitle}>{copy.title}</h1>
+      <p className={ui.lockBody}>{copy.body}</p>
 
       <Boxes label="PIN" value={pin} onChange={setPin} autoFocus disabled={pending} />
 
-      {mode === 'set' ? (
+      {needsTwo ? (
         <>
           <p className={ui.lockBody} style={{ marginTop: 18 }}>Once more, to be sure.</p>
           <Boxes label="Confirm PIN" value={confirm} onChange={setConfirm} disabled={pending} />
@@ -135,15 +240,20 @@ export function PinPad({ mode }: { mode: 'set' | 'enter' }) {
 
       <div className={ui.actions} style={{ marginTop: 20, justifyContent: 'center' }}>
         <button type="button" className={ui.button} disabled={!ready || pending} onClick={submit}>
-          {pending ? 'Checking…' : mode === 'set' ? 'Set PIN' : 'Unlock'}
+          {pending ? 'Checking…' : copy.cta}
         </button>
       </div>
 
-      <p className={ui.hint} style={{ marginTop: 18, textAlign: 'center' }}>
-        {mode === 'set'
-          ? 'This sits in front of a session you are already signed in to. It is not your password.'
-          : 'Forgotten it? Sign out and back in, and you can set a new one.'}
-      </p>
+      {mode === 'enter' ? (
+        <p className={ui.hint} style={{ marginTop: 18, textAlign: 'center' }}>
+          <Link href="/lock?reset=1">Forgotten your PIN?</Link>
+        </p>
+      ) : (
+        <p className={ui.hint} style={{ marginTop: 18, textAlign: 'center' }}>
+          This sits in front of a session you are already signed in to. It is not your password, and
+          it is never stored — only a hash of it is.
+        </p>
+      )}
     </div>
   );
 }

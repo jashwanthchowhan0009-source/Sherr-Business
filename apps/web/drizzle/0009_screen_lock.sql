@@ -5,7 +5,9 @@ create table if not exists user_pins (
   pin_hash        text        not null,
   salt            text        not null,
   failed_attempts integer     not null default 0,
-  locked_until    timestamptz,
+  -- A hard lock, not a timed one. Five wrong guesses and the only way back is
+  -- re-verifying the second factor with Clerk; waiting does not help.
+  locked_at       timestamptz,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   constraint user_pins_attempts_check check (failed_attempts >= 0)
@@ -20,6 +22,9 @@ create table if not exists pin_unlocks (
   -- SHA-256 of the token. A stolen database row cannot be replayed as a cookie.
   token_hash text        not null unique,
   created_at timestamptz not null default now(),
+  -- Idle expiry: refreshed on every authenticated request, so an unlock dies
+  -- five minutes after the last one rather than at a fixed time.
+  last_seen_at timestamptz not null default now(),
   expires_at timestamptz not null,
   revoked_at timestamptz
 );
