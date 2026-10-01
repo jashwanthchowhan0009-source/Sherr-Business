@@ -531,6 +531,47 @@ export const voucherAllocations = pgTable(
   ],
 );
 
+/**
+ * What the uploader says a document is, matching the input-type chips in the
+ * Input design.
+ *
+ * It is a claim, not a fact: nothing validates it, and no number anywhere is
+ * derived from it. Classification and extraction arrive in step H, and will
+ * record their own answer separately rather than overwriting what a person
+ * said.
+ */
+export const DECLARED_DOCUMENT_TYPES = [
+  'sales_invoice',
+  'credit_note',
+  'purchase_bill',
+  'purchase_order',
+  'bank_statement',
+  'cashbook',
+  'party_ledger',
+  'expense',
+  'asset',
+  'inventory',
+  'payroll',
+  'other',
+] as const;
+export type DeclaredDocumentType = (typeof DECLARED_DOCUMENT_TYPES)[number];
+
+/** Chip labels, in the order the Input screen shows them. */
+export const DECLARED_DOCUMENT_TYPE_LABELS: Record<DeclaredDocumentType, string> = {
+  sales_invoice: 'Sales invoices',
+  credit_note: 'Credit notes',
+  purchase_bill: 'Purchase bills',
+  purchase_order: "PO's",
+  bank_statement: 'Bank statements',
+  cashbook: 'Cashbook',
+  party_ledger: 'Customer and supplier ledgers',
+  expense: 'Expenses',
+  asset: 'Assets',
+  inventory: 'Inventory',
+  payroll: 'Payroll',
+  other: 'Something else',
+};
+
 export const DOCUMENT_STATUSES = [
   'stored',
   'extracting',
