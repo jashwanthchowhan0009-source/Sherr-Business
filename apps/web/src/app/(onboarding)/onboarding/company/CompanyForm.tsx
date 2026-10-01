@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useOrganizationList } from '@clerk/nextjs';
 import { createCompany } from '@/server/onboarding';
 import { REGISTRATION_TYPES } from '@/lib/db/schema';
-import { validateGstin } from '@/lib/india/gstin';
+import { STATE_CODES, validateGstin } from '@/lib/india/gstin';
+import { stateFromPincode } from '@/lib/india/pincode';
 import { ui } from '@/components/ui';
 
 const MONTHS = [
@@ -25,6 +26,9 @@ const REGISTRATION_HINTS: Record<(typeof REGISTRATION_TYPES)[number], string> = 
   unregistered: 'Not registered under GST. No GSTIN.',
 };
 
+/** Code → name, in name order, for the state picker. */
+const STATES = Object.entries(STATE_CODES).sort((a, b) => a[1].localeCompare(b[1]));
+
 /** 1 April of the financial year the books start in. */
 function defaultBooksStart(): string {
   const now = new Date();
@@ -40,6 +44,8 @@ export function CompanyForm() {
   const [registrationType, setRegistrationType] =
     useState<(typeof REGISTRATION_TYPES)[number]>('regular');
   const [gstin, setGstin] = useState('');
+  const [stateCode, setStateCode] = useState('');
+  const [pincode, setPincode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
@@ -52,6 +58,25 @@ export function CompanyForm() {
 
   const registered = registrationType !== 'unregistered';
 
+  // A valid GSTIN already says which state, so the picker follows it rather
+  // than asking the same question twice — and a disagreement between the two is
+  // impossible rather than merely reported.
+  const stateFromGstin = derived?.ok ? derived.parts.stateCode : null;
+
+  // Otherwise the PIN code narrows it. Most prefixes give one state, which is
+  // preselected; the ones that span two offer both. It is a suggestion either
+  // way: what the person leaves selected is what gets stored, because a wrong
+  // state makes the tax on every invoice wrong without saying so.
+  const suggestion = useMemo(() => stateFromPincode(pincode), [pincode]);
+  const suggested = suggestion.certain ? suggestion.stateCodes[0]! : '';
+  const effectiveStateCode = stateFromGstin ?? (stateCode || suggested);
+
+  // When the PIN code points somewhere, the picker offers those states; when it
+  // says nothing, it offers all of them.
+  const stateOptions = suggestion.states.length > 0
+    ? suggestion.states.map((st) => [st.code, st.name] as const)
+    : STATES;
+
   function onSubmit(formData: FormData) {
     setError(null);
     setFieldErrors({});
@@ -62,7 +87,7 @@ export function CompanyForm() {
         registrationType,
         gstin: registered ? String(formData.get('gstin') ?? '') : '',
         pan: String(formData.get('pan') ?? ''),
-        stateCode: '',
+        stateCode: effectiveStateCode,
         fyStartMonth: Number(formData.get('fyStartMonth') ?? 4),
         booksStartDate: String(formData.get('booksStartDate') ?? ''),
         baseCurrency: 'INR',
@@ -119,7 +144,9 @@ export function CompanyForm() {
 
       {registered ? (
         <div className={ui.field}>
-          <label className={ui.label} htmlFor="gstin">GSTIN</label>
+          <label className={ui.label} htmlFor="gstin">
+            GSTIN <span className={ui.hint}>— optional</span>
+          </label>
           <input
             className={ui.input}
             id="gstin"
@@ -136,7 +163,8 @@ export function CompanyForm() {
             <span className={ui.error}>{fieldErrors.gstin.join(' ')}</span>
           ) : derived === null ? (
             <span className={ui.hint}>
-              Your PAN and state are read from this, so they are not asked for twice.
+              Add it now and your PAN and state are read from it. You can add it later instead —
+              GST invoices and returns need it, nothing else does.
             </span>
           ) : derived.ok ? (
             <span className={ui.hint} style={{ color: 'var(--sb-verified)' }}>
@@ -146,13 +174,78 @@ export function CompanyForm() {
             <span className={ui.error}>{derived.message}</span>
           )}
         </div>
-      ) : (
-        <Field
-          name="pan" label="PAN"
-          hint="Ten characters, like AAAAA9999A. Asked for directly because there is no GSTIN to read it from."
-          errors={fieldErrors.pan}
-        />
-      )}
+      ) : null}
+
+      <div className={ui.formGrid}>
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="pincode">PIN code</label>
+          <input
+            className={ui.input}
+            id="pincode"
+            name="pincode"
+            value={pincode}
+            onChange={(e) => {
+              setPincode(e.target.value.replace(/\D/g, '').slice(0, 6));
+              // A new PIN code means a new suggestion, so an earlier manual
+              // choice should not quietly survive it.
+              setStateCode('');
+            }}
+            inputMode="numeric"
+            autoComplete="postal-code"
+            placeholder="6 digits"
+            disabled={stateFromGstin !== null}
+            style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.04em' }}
+          />
+          <span className={ui.hint}>
+            {stateFromGstin !== null
+              ? 'Not needed — your state comes from the GSTIN.'
+              : 'Where your business is. Used to work out your state.'}
+          </span>
+        </div>
+
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="stateCode">State</label>
+          <select
+            className={ui.input}
+            id="stateCode"
+            value={effectiveStateCode}
+            disabled={stateFromGstin !== null}
+            onChange={(e) => setStateCode(e.target.value)}
+          >
+            <option value="">Choose a state…</option>
+            {stateOptions.map(([code, name]) => (
+              <option key={code} value={code}>{name}</option>
+            ))}
+          </select>
+          {fieldErrors.stateCode?.length ? (
+            <span className={ui.error}>{fieldErrors.stateCode.join(' ')}</span>
+          ) : stateFromGstin !== null ? (
+            <span className={ui.hint}>Read from your GSTIN.</span>
+          ) : suggestion.certain ? (
+            <span className={ui.hint} style={{ color: 'var(--sb-verified)' }}>
+              From your PIN code. Change it if that is not right.
+            </span>
+          ) : suggestion.states.length > 1 ? (
+            <span className={ui.hint}>
+              That PIN code covers more than one state. Choose which.
+            </span>
+          ) : (
+            <span className={ui.hint}>
+              Decides whether a sale is CGST and SGST or IGST, so it is needed even without GST
+              registration.
+            </span>
+          )}
+        </div>
+
+        {/* PAN is asked for only when there is no GSTIN to read it from. */}
+        {stateFromGstin === null ? (
+          <Field
+            name="pan" label="PAN — optional"
+            hint="Ten characters, like AAAAA9999A."
+            errors={fieldErrors.pan}
+          />
+        ) : null}
+      </div>
 
       <div className={ui.formGrid}>
         <div className={ui.field}>

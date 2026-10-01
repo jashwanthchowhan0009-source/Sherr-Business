@@ -16,25 +16,26 @@ const companySchema = z
     registrationType: z.enum(REGISTRATION_TYPES),
     gstin: z.string().trim().toUpperCase().optional().or(z.literal('')),
     pan: z.string().trim().toUpperCase().optional().or(z.literal('')),
-    stateCode: z.string().trim().optional().or(z.literal('')),
+    // Always required, never inferred from nothing. The GST engine decides
+    // CGST+SGST against IGST by comparing this with the place of supply, so a
+    // company without it cannot raise a single invoice.
+    stateCode: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{2}$/, 'Choose the state your business is in'),
     fyStartMonth: z.coerce.number().int().min(1).max(12).default(4),
     booksStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date'),
     baseCurrency: z.literal('INR').default('INR'),
   })
   .superRefine((value, ctx) => {
-    const registered = value.registrationType !== 'unregistered';
-
-    if (registered && !value.gstin) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['gstin'],
-        message: 'A registered business needs a GSTIN.',
-      });
-      return;
-    }
-
+    // A GSTIN is never required to create a company. Registration under GST is
+    // compulsory only above the turnover thresholds, so plenty of real
+    // businesses have none; and somebody who is registered may simply not have
+    // the number to hand, or may still be waiting for it. Refusing to open the
+    // books over a field that can be filled in later helps nobody. What the
+    // books genuinely cannot do without is the state, which is asked for
+    // directly above.
     if (!value.gstin) {
-      // Unregistered: no GSTIN to derive from, so PAN is asked for directly.
       if (value.pan && !isValidPan(value.pan)) {
         ctx.addIssue({ code: 'custom', path: ['pan'], message: 'PAN looks like AAAAA9999A.' });
       }
