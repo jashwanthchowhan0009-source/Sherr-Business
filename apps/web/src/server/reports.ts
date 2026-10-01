@@ -6,6 +6,15 @@ import { forbidden, notFound } from '@/lib/errors';
 import type { RequestContext } from '@/lib/auth/context';
 import { ageByParty, ageingGrandTotal, type AgeingRow } from '@/lib/accounting/ageing';
 import type { AccountNatureValue } from '@/lib/db/schema';
+import {
+  buildBalanceSheet,
+  buildCashFlow,
+  buildProfitAndLoss,
+  type AccountBalance,
+  type BalanceSheet,
+  type CashFlow,
+  type ProfitAndLoss,
+} from '@/lib/accounting/financial-statements';
 
 /**
  * The reports.
@@ -612,7 +621,35 @@ export async function getDashboard(
     ? `The books are locked to ${lockedUpto}, so this cannot change.`
     : 'The period is still open, so this can change until the books are closed.';
 
+  // Profit needs the statements, because it depends on closing stock having
+  // been entered: purchases are expensed as made, so a trading company shows a
+  // loss until the stock it still holds is recognised.
+  const statements = await getFinancialStatements(ctx, { from: input.from, to: input.asOf });
+
   const metrics: DashboardMetric[] = [
+    {
+      key: 'profit',
+      label: 'Profit before tax',
+      valuePaise: statements.profitAndLoss.profitBeforeTaxPaise,
+      caption: statements.closingStockEntered
+        ? `Income less expenses, ${input.from} to ${input.asOf}.`
+        : 'Closing stock is not entered, so this is understated by the stock still held.',
+      // The §2 rule: profit is provisional until the period is locked, however
+      // correct the arithmetic is. It is marked draft rather than merely
+      // provisional when closing stock is missing, because then it is not just
+      // changeable — it is known to be wrong.
+      status: !statements.closingStockEntered
+        ? 'draft'
+        : periodClosed
+          ? 'verified'
+          : 'provisional',
+      statusReason: !statements.closingStockEntered
+        ? 'Closing stock has not been entered for this period. Until it is, every rupee of unsold stock is showing as a cost, so this figure is understated. Enter it on Output.'
+        : periodClosed
+          ? `The books are locked to ${lockedUpto}, so this cannot change.`
+          : 'The period is still open. The arithmetic is right, but the figures behind it can change until the books are closed.',
+      trace: [],
+    },
     {
       key: 'revenue',
       label: 'Revenue',
@@ -717,4 +754,198 @@ export async function getDashboard(
 function formatOverdue(paise: bigint): string {
   const rupees = paise / 100n;
   return `₹${rupees.toLocaleString('en-IN')}`;
+}
+
+/**
+ * Movement in every account over a period.
+ *
+ * Distinct from a trial balance, which is cumulative. An income or expense
+ * account's figure *for a period* is what moved through it; using a cumulative
+ * balance would report the year to date whatever dates were asked for, which is
+ * the kind of error that looks right until somebody compares two quarters.
+ */
+export async function getAccountMovements(
+  ctx: RequestContext,
+  input: { from: string; to: string },
+): Promise<AccountBalance[]> {
+  guard(ctx);
+  return withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+    const { rows } = await tx.execute<{
+      code: string;
+      name: string;
+      group_code: string;
+      nature: string;
+      bucket: string | null;
+      net: string;
+    }>(sql`
+      select a.code, a.name, g.code as group_code, a.nature, g.bucket,
+             coalesce(sum(l.debit_paise - l.credit_paise), 0)::text as net
+        from accounts a
+        join account_groups g on g.id = a.group_id
+        left join ledger_entries l
+               on l.account_id = a.id
+              and l.entry_date between ${input.from}::date and ${input.to}::date
+        left join vouchers v on v.id = l.voucher_id and v.status = 'posted'
+       where l.id is null or v.id is not null
+       group by a.code, a.name, g.code, a.nature, g.bucket
+       order by g.code, a.code
+    `);
+
+    return rows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      groupCode: r.group_code,
+      nature: r.nature as AccountBalance['nature'],
+      bucket: r.bucket,
+      netPaise: BigInt(r.net),
+    }));
+  });
+}
+
+export interface FinancialStatements {
+  from: string;
+  to: string;
+  profitAndLoss: ProfitAndLoss;
+  balanceSheet: BalanceSheet;
+  cashFlow: CashFlow;
+  lockedUpto: string | null;
+  /** True when the whole period is inside a lock, so the figures cannot change. */
+  periodClosed: boolean;
+  /** True once closing stock has been entered for this period. */
+  closingStockEntered: boolean;
+}
+
+/**
+ * The three statements for a period, built from the same ledger.
+ *
+ * Three identities are asserted by the test suite rather than hoped for: profit
+ * equals income less expenses, the balance sheet balances once the profit is
+ * carried into reserves, and the cash flow's net change equals the movement in
+ * cash. The third is the strongest, because it can only hold if every account's
+ * movement was classified.
+ */
+export async function getFinancialStatements(
+  ctx: RequestContext,
+  input: { from: string; to: string },
+): Promise<FinancialStatements> {
+  guard(ctx);
+
+  const [movements, closing, openingCash, closingStock, lock] = await Promise.all([
+    getAccountMovements(ctx, input),
+    getTrialBalance(ctx, input.to),
+    cashBalanceBefore(ctx, input.from),
+    closingStockEnteredFor(ctx, input),
+    lockedUptoFor(ctx),
+  ]);
+
+  const profitAndLoss = buildProfitAndLoss({
+    from: input.from,
+    to: input.to,
+    movements,
+    closingStockEntered: closingStock,
+  });
+
+  const balances: AccountBalance[] = closing.rows.map((r) => ({
+    code: r.code,
+    name: r.name,
+    groupCode: r.groupCode,
+    nature: r.nature as AccountBalance['nature'],
+    bucket: null,
+    netPaise: r.netPaise,
+  }));
+
+  // The balance sheet carries ACCUMULATED profit, not the reporting window's.
+  //
+  // Nothing closes the profit and loss to retained earnings until the year is
+  // closed, so the ledger's income and expense accounts hold everything since
+  // inception. A sheet as at 31 March must therefore carry April-to-March profit
+  // even when the statement beside it covers only July onwards — carrying the
+  // window's figure instead leaves the sheet out by the profit earned before it,
+  // which is what the test for an arbitrary window caught.
+  const accumulatedProfitPaise = -balances
+    .filter((b) => b.nature === 'income' || b.nature === 'expense')
+    .reduce((acc, b) => acc + b.netPaise, 0n);
+
+  const balanceSheet = buildBalanceSheet({
+    asOf: input.to,
+    balances,
+    profitPaise: accumulatedProfitPaise,
+  });
+
+  const closingCash = balances
+    .filter((b) => b.groupCode === 'CASH_IN_HAND' || b.groupCode === 'BANK_ACCOUNTS')
+    .reduce((acc, b) => acc + b.netPaise, 0n);
+
+  const cashFlow = buildCashFlow({
+    from: input.from,
+    to: input.to,
+    movements,
+    profitBeforeTaxPaise: profitAndLoss.profitBeforeTaxPaise,
+    openingCashPaise: openingCash,
+    closingCashPaise: closingCash,
+  });
+
+  return {
+    from: input.from,
+    to: input.to,
+    profitAndLoss,
+    balanceSheet,
+    cashFlow,
+    lockedUpto: lock,
+    // The whole period must be inside the lock, not merely overlap it: a lock to
+    // 30 September does not close the year to 31 March.
+    periodClosed: lock !== null && lock >= input.to,
+    closingStockEntered: closingStock,
+  };
+}
+
+async function cashBalanceBefore(ctx: RequestContext, from: string): Promise<bigint> {
+  return withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+    const { rows } = await tx.execute<{ net: string }>(sql`
+      select coalesce(sum(l.debit_paise - l.credit_paise), 0)::text as net
+        from ledger_entries l
+        join vouchers v on v.id = l.voucher_id
+        join accounts a on a.id = l.account_id
+        join account_groups g on g.id = a.group_id
+       where v.status = 'posted'
+         and l.entry_date < ${from}::date
+         and g.code in ('CASH_IN_HAND', 'BANK_ACCOUNTS')
+    `);
+    return BigInt(rows[0]?.net ?? '0');
+  });
+}
+
+/**
+ * Whether closing stock has been entered for this period.
+ *
+ * Gross profit is meaningless without it — purchases are expensed in full, so a
+ * trading company shows a loss until the stock it still holds is recognised. The
+ * statements therefore say whether it has been done rather than quietly
+ * presenting a figure that is wrong by the value of the warehouse.
+ */
+async function closingStockEnteredFor(
+  ctx: RequestContext,
+  input: { from: string; to: string },
+): Promise<boolean> {
+  return withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+    const { rows } = await tx.execute<{ n: string }>(sql`
+      select count(*)::text as n
+        from ledger_entries l
+        join vouchers v on v.id = l.voucher_id
+        join accounts a on a.id = l.account_id
+       where v.status = 'posted'
+         and a.code = 'INVENTORY_CHANGE'
+         and l.entry_date between ${input.from}::date and ${input.to}::date
+    `);
+    return Number(rows[0]?.n ?? 0) > 0;
+  });
+}
+
+async function lockedUptoFor(ctx: RequestContext): Promise<string | null> {
+  return withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+    const { rows } = await tx.execute<{ locked_upto: string }>(
+      sql`select locked_upto::text from period_locks limit 1`,
+    );
+    return rows[0]?.locked_upto ?? null;
+  });
 }

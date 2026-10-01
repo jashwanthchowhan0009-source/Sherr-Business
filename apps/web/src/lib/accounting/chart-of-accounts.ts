@@ -74,6 +74,9 @@ export const ACCOUNT_GROUPS: readonly AccountGroupSeed[] = Object.freeze([
   // ── Expenses ──────────────────────────────────────────────────────────────
   { code: 'PURCHASES', name: 'Purchase Accounts', parent: null, nature: 'expense', bucket: 'expenses' },
   { code: 'DIRECT_EXPENSES', name: 'Direct Expenses', parent: null, nature: 'expense', bucket: 'expenses' },
+  // Schedule III shows "changes in inventories" as its own expense line, so it
+  // gets its own group rather than being buried in direct expenses.
+  { code: 'INVENTORY_CHANGE', name: 'Changes in Inventories', parent: null, nature: 'expense', bucket: 'expenses' },
   { code: 'INDIRECT_EXPENSES', name: 'Indirect Expenses', parent: null, nature: 'expense', bucket: 'expenses' },
 ]);
 
@@ -106,6 +109,8 @@ export const ACCOUNTS: readonly AccountSeed[] = Object.freeze([
     note: 'Default bank ledger. Add your named bank accounts and use those instead.' },
   { code: 'STOCK_IN_HAND', name: 'Stock-in-Hand', group: 'STOCK_IN_HAND', isSystem: true,
     note: 'Closing stock is entered at period end; gross profit stays provisional until it is.' },
+  { code: 'INVENTORY_CHANGE', name: 'Changes in Inventories', group: 'INVENTORY_CHANGE', isSystem: true,
+    note: 'Opening stock debited, closing stock credited. Carries (opening less closing) for the period.' },
 
   // Input tax — an asset: credit recoverable against output tax.
   { code: 'INPUT_CGST', name: 'Input CGST', group: 'LOANS_AND_ADVANCES', isSystem: true },
