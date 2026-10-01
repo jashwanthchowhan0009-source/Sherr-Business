@@ -96,9 +96,28 @@ describe('role capability matrix', () => {
       expect(can('viewer', 'taxrule:verify')).toBe(false);
     });
 
+    it('separates importing a statement from reconciling it', () => {
+      // Importing changes nothing; reconciling asserts the bank agrees with the
+      // books, which is a claim only someone who can post should make.
+      for (const capability of ['bank:import', 'bank:reconcile'] as const) {
+        expect(can('owner', capability)).toBe(true);
+        expect(can('accountant', capability)).toBe(true);
+        expect(can('ca_reviewer', capability)).toBe(false);
+        expect(can('viewer', capability)).toBe(false);
+      }
+    });
+
+    it('lets every role read the bank and the procurement trail', () => {
+      for (const role of ROLES) {
+        expect(can(role, 'bank:read'), role).toBe(true);
+        expect(can(role, 'procurement:read'), role).toBe(true);
+      }
+    });
+
     it('gives the CA reviewer no way to enter a transaction', () => {
       for (const capability of [
         'voucher:draft', 'voucher:post', 'party:write', 'item:write', 'document:upload',
+        'bank:import', 'bank:reconcile', 'procurement:write',
       ] as const) {
         expect(can('ca_reviewer', capability)).toBe(false);
       }

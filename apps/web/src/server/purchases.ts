@@ -1,6 +1,6 @@
 'use server';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/lib/auth/action';
@@ -97,8 +97,9 @@ const purchaseBillSchema = z.object({
   narration: optional(z.string().trim().max(500)),
   lines: z.array(taxLineSchema).min(1, 'A bill needs at least one line'),
   post: z.coerce.boolean().default(true),
-  /** Set only after the duplicate warning has been shown and overridden. */
-  acknowledgeDuplicate: z.coerce.boolean().default(false),
+  /** The order and receipt this bill relates to, for the three-way match. */
+  poId: z.string().uuid().optional().or(z.literal('')),
+  grnId: z.string().uuid().optional().or(z.literal('')),
 });
 
 /**
@@ -176,6 +177,16 @@ const createPurchaseBillAction = defineAction({
       lines,
       entries,
     });
+
+    // Tie the bill to its order and receipt so the three-way match can compare
+    // all three. Both are optional: not every purchase goes through an order.
+    if (input.poId || input.grnId) {
+      await tx.execute(sql`
+        update vouchers
+           set po_id = ${input.poId || null}::uuid, grn_id = ${input.grnId || null}::uuid
+         where id = ${created.id}::uuid and status = 'draft'
+      `);
+    }
 
     if (input.post) await postVoucherRow(tx, { voucherId: created.id, userId });
 

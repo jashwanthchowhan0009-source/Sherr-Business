@@ -5,6 +5,9 @@ import { formatRupees, paise } from '@/lib/money';
 import { STATE_CODES } from '@/lib/india/gstin';
 import { getCompany } from '@/server/queries';
 import { getDayBook, getRegister, getTrialBalance } from '@/server/reports';
+import { getBankAccounts, getReconciliation } from '@/server/banking-queries';
+import { getThreeWayMatches } from '@/server/procurement-queries';
+import { EXCEPTION_LABELS } from '@/lib/banking/three-way-match';
 import { withContext } from '../_guard';
 
 export const dynamic = 'force-dynamic';
@@ -27,12 +30,22 @@ export default async function OutputPage() {
     const { org } = await getCompany(ctx);
     const fy = fiscalYearOf(today, org?.fyStartMonth ?? 4);
 
-    const [trialBalance, dayBook, sales, purchases] = await Promise.all([
+    const [trialBalance, dayBook, sales, purchases, banks] = await Promise.all([
       getTrialBalance(ctx, today),
       getDayBook(ctx, { from: fy.startDate, to: today, limit: 40 }),
       getRegister(ctx, { kind: 'sales', from: fy.startDate, to: today }),
       getRegister(ctx, { kind: 'purchase', from: fy.startDate, to: today }),
+      getBankAccounts(ctx),
     ]);
+
+    const threeWay = await getThreeWayMatches(ctx, 20);
+
+    const reconciliations = await Promise.all(
+      banks.map(async (bank) => ({
+        bank,
+        rec: await getReconciliation(ctx, { bankAccountId: bank.id, asOf: today }),
+      })),
+    );
 
     const balanced = trialBalance.differencePaise === 0n;
     const moved = trialBalance.rows.filter(
@@ -118,6 +131,209 @@ export default async function OutputPage() {
 
         <Band>Purchase register</Band>
         <RegisterPanel register={purchases} />
+
+        <Band>Bank reconciliation</Band>
+        {reconciliations.length === 0 ? (
+          <Panel>
+            <EmptyState title="No bank account set up">
+              Add a bank account on Process and import a statement, and the reconciliation appears
+              here.
+            </EmptyState>
+          </Panel>
+        ) : (
+          reconciliations.map(({ bank, rec }) => (
+            <div key={bank.id} style={{ marginBottom: 20 }}>
+              <Panel
+                title={`${bank.bankName} — ${bank.accountLabel}`}
+                note={
+                  rec.differencePaise === null
+                    ? 'No statement balance to reconcile against yet.'
+                    : rec.differencePaise === 0n
+                      ? 'Reconciles exactly.'
+                      : `Out by ${formatRupees(paise(rec.differencePaise))} — the difference is not explained by the lists below.`
+                }
+              >
+                {/* The classic BRS: start from the books, add what the bank knows
+                    and we do not, subtract what we know and the bank does not.
+                    The difference is shown rather than hidden, because an
+                    unexplained difference is the whole reason to run this. */}
+                <table className={ui.table}>
+                  <tbody>
+                    <tr>
+                      <td>Balance as per the books</td>
+                      <td className={`${ui.right} tnum`}>
+                        {formatRupees(paise(rec.bookBalancePaise))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        On the statement, not in the books
+                        <div className={ui.hint}>
+                          {rec.unreconciledStatementLines.length}{' '}
+                          {rec.unreconciledStatementLines.length === 1 ? 'line' : 'lines'}
+                        </div>
+                      </td>
+                      <td className={`${ui.right} tnum`}>
+                        {formatRupees(paise(rec.unreconciledStatementTotalPaise))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        In the books, not yet on the statement
+                        <div className={ui.hint}>
+                          {rec.unpresentedVouchers.length}{' '}
+                          {rec.unpresentedVouchers.length === 1 ? 'voucher' : 'vouchers'}
+                        </div>
+                      </td>
+                      <td className={`${ui.right} tnum`}>
+                        {formatRupees(paise(-rec.unpresentedTotalPaise))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>Reconciled balance</b></td>
+                      <td className={`${ui.right} tnum`}>
+                        <b>{formatRupees(paise(rec.reconciledBalancePaise))}</b>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Balance as per the statement</td>
+                      <td className={`${ui.right} tnum`}>
+                        {rec.statementBalancePaise === null
+                          ? '—'
+                          : formatRupees(paise(rec.statementBalancePaise))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Difference</td>
+                      <td className={ui.right}>
+                        {rec.differencePaise === null ? (
+                          <span className={ui.hint}>Not known</span>
+                        ) : (
+                          <StatusPill status={rec.differencePaise === 0n ? 'verified' : 'draft'}>
+                            {formatRupees(paise(rec.differencePaise))}
+                          </StatusPill>
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {rec.unreconciledStatementLines.length > 0 ? (
+                  <>
+                    <p className={ui.hint} style={{ marginTop: 16 }}>
+                      On the statement, not in the books
+                    </p>
+                    <table className={ui.table}>
+                      <tbody>
+                        {rec.unreconciledStatementLines.map((line) => (
+                          <tr key={line.lineId}>
+                            <td className="tnum">{line.lineDate}</td>
+                            <td>
+                              {line.narration}
+                              {line.status === 'ignored' ? (
+                                <div className={ui.hint}>Marked as needing no voucher</div>
+                              ) : null}
+                            </td>
+                            <td className={`${ui.right} tnum`}>
+                              {formatRupees(paise(line.amountPaise))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : null}
+
+                {rec.unpresentedVouchers.length > 0 ? (
+                  <>
+                    <p className={ui.hint} style={{ marginTop: 16 }}>
+                      In the books, not yet on the statement
+                    </p>
+                    <table className={ui.table}>
+                      <tbody>
+                        {rec.unpresentedVouchers.map((voucher) => (
+                          <tr key={voucher.voucherId}>
+                            <td className="tnum">{voucher.voucherDate}</td>
+                            <td>{voucher.voucherNo}</td>
+                            <td className={`${ui.right} tnum`}>
+                              {formatRupees(paise(voucher.amountPaise))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : null}
+              </Panel>
+            </div>
+          ))
+        )}
+
+        <Band>Three-way match</Band>
+        {threeWay.length === 0 ? (
+          <Panel>
+            <EmptyState title="No purchase orders">
+              Raise a purchase order and record what arrived against it, and this compares the
+              order, the delivery and the bill. It is the control that stops a supplier being paid
+              for goods nobody ordered or nobody received.
+            </EmptyState>
+          </Panel>
+        ) : (
+          <Panel bodyless>
+            <Table
+              head={
+                <tr>
+                  <th>Order</th>
+                  <th>Supplier</th>
+                  <th>Received</th>
+                  <th>Billed</th>
+                  <th>What disagrees</th>
+                  <th className={ui.right}>Would overpay</th>
+                </tr>
+              }
+            >
+              {threeWay.map((row) => (
+                <tr key={row.poId}>
+                  <td>
+                    {row.poNo}
+                    <div className={ui.hint}>{row.poDate}</div>
+                  </td>
+                  <td>{row.supplierName}</td>
+                  <td className={ui.hint}>
+                    {row.grnNumbers.length === 0 ? 'Nothing yet' : row.grnNumbers.join(', ')}
+                  </td>
+                  <td className={ui.hint}>
+                    {row.billNumbers.length === 0 ? 'Nothing yet' : row.billNumbers.join(', ')}
+                  </td>
+                  <td>
+                    {row.result.matched ? (
+                      <StatusPill status="verified">All three agree</StatusPill>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {row.result.exceptions.map((exception, i) => (
+                          <li key={i}>
+                            <b>{EXCEPTION_LABELS[exception.kind]}</b>
+                            <div className={ui.hint}>{exception.detail}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                  <td className={ui.right}>
+                    {row.overchargePaise === 0n ? (
+                      <span className={ui.hint}>—</span>
+                    ) : (
+                      <>
+                        <span className="tnum">{formatRupees(paise(row.overchargePaise))}</span>
+                        <div className={ui.hint}>more than was agreed</div>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </Panel>
+        )}
 
         <Band>Day book</Band>
         <Panel

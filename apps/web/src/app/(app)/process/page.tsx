@@ -4,10 +4,14 @@ import { can } from '@/lib/auth/permissions';
 import { formatRupees, paise } from '@/lib/money';
 import { getCompany } from '@/server/queries';
 import { getAccounts, getItems, getParties, getPeriodLock, getVouchers } from '@/server/ledger-queries';
+import { getBankAccounts, getReviewQueue } from '@/server/banking-queries';
+import { getOpenPurchaseOrders } from '@/server/procurement-queries';
 import { withContext } from '../_guard';
 import { InvoiceForm } from './InvoiceForm';
 import { PurchaseBillForm } from './PurchaseBillForm';
 import { ContraForm, JournalForm, PaymentForm, ReverseButton } from './SimpleVoucherForms';
+import { BankPanel } from './BankPanel';
+import { GoodsReceiptForm, PurchaseOrderForm } from './ProcurementForms';
 import { ItemForm } from './ItemForm';
 import { PartyForm } from './PartyForm';
 import { ReceiptForm } from './ReceiptForm';
@@ -33,6 +37,14 @@ export default async function ProcessPage() {
       getAccounts(ctx),
       getPeriodLock(ctx),
     ]);
+
+    const [banks, openOrders] = await Promise.all([
+      getBankAccounts(ctx),
+      getOpenPurchaseOrders(ctx),
+    ]);
+    const bankQueue = banks[0]
+      ? await getReviewQueue(ctx, { bankAccountId: banks[0].id, limit: 50 })
+      : [];
 
     const mayWrite = can(ctx.role, 'voucher:draft');
     const mayPost = can(ctx.role, 'voucher:post');
@@ -127,6 +139,37 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
+        <Band>Purchase order</Band>
+        <Panel>
+          {can(ctx.role, 'procurement:write') ? (
+            <PurchaseOrderForm
+              suppliers={suppliers.map((p) => ({ id: p.id, name: p.name }))}
+              items={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit }))}
+              today={today}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Your role can read orders but not raise them.
+            </EmptyState>
+          )}
+        </Panel>
+
+        <Band>What arrived</Band>
+        <Panel>
+          {can(ctx.role, 'procurement:write') ? (
+            <GoodsReceiptForm
+              suppliers={suppliers.map((p) => ({ id: p.id, name: p.name }))}
+              items={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit }))}
+              orders={openOrders.map((o) => ({ id: o.id, poNo: o.poNo, partyId: o.partyId }))}
+              today={today}
+            />
+          ) : (
+            <EmptyState title="Not available to your role">
+              Your role can read receipts but not record them.
+            </EmptyState>
+          )}
+        </Panel>
+
         <Band>Pay a supplier</Band>
         <Panel>
           {mayPost ? (
@@ -166,6 +209,37 @@ export default async function ProcessPage() {
               A contra posts to the books, which your role cannot do.
             </EmptyState>
           )}
+        </Panel>
+
+        <Band>
+          Bank statement
+          {bankQueue.length > 0 ? ` — ${bankQueue.length} awaiting a decision` : ''}
+        </Band>
+        <Panel>
+          <BankPanel
+            accounts={banks.map((b) => ({
+              id: b.id,
+              label: `${b.bankName} — ${b.accountLabel}${
+                b.accountNumberLast4 ? ` ····${b.accountNumberLast4}` : ''
+              }`,
+            }))}
+            ledgerAccounts={accounts
+              .filter((a) => a.code === 'BANK' || a.code.startsWith('BANK'))
+              .map((a) => ({ id: a.id, name: a.name }))}
+            selectedAccountId={banks[0]?.id ?? null}
+            queue={bankQueue.map((r) => ({
+              lineId: r.lineId,
+              lineDate: r.lineDate,
+              narration: r.narration,
+              reference: r.reference,
+              amountPaise: r.amountPaise.toString(),
+              status: r.status,
+              suggestion: r.suggestion
+                ? { ...r.suggestion, tier: r.suggestion.tier }
+                : null,
+            }))}
+            readOnly={!can(ctx.role, 'bank:reconcile')}
+          />
         </Panel>
 
         <Band>{vouchers.length === 0 ? 'Vouchers' : `Vouchers — ${vouchers.length} most recent`}</Band>
