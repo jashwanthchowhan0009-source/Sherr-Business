@@ -24,7 +24,9 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.34.0",
+    "@react-pdf/renderer": "^4.9.0",
     "@sentry/nextjs": "^10.12.0",
+    "@vercel/blob": "^2.8.0",
     "drizzle-orm": "^0.44.5",
     "next": "^15.5.4",
     "pg": "^8.16.3",
@@ -36,6 +38,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
     "@playwright/test": "^1.55.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.18.0",
     "@types/pg": "^8.15.5",
     "@types/react": "^19.1.13",
@@ -44,6 +48,8 @@
     "drizzle-kit": "^0.31.4",
     "eslint": "^9.36.0",
     "eslint-config-next": "^15.5.4",
+    "jsdom": "^30.1.1",
+    "pdfjs-dist": "^6.3.289",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

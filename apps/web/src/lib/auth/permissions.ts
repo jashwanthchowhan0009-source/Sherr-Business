@@ -19,6 +19,21 @@ export const CAPABILITIES = [
   'invite:read',
   'invite:revoke',
   'audit:read',
+
+  // Step B: the ledger. Reading and drafting are separated from posting,
+  // because posting is what makes a voucher immutable and puts a number into
+  // the books. A ca_reviewer may read everything and post nothing.
+  'party:read',
+  'party:write',
+  'item:read',
+  'item:write',
+  'voucher:read',
+  'voucher:draft',
+  'voucher:post',
+  'document:read',
+  'document:upload',
+  'taxrule:read',
+  'taxrule:verify',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -26,12 +41,17 @@ export type Capability = (typeof CAPABILITIES)[number];
 const ALL: readonly Capability[] = CAPABILITIES;
 
 /**
- * Roles are deliberately narrow. Two notes on the less obvious choices:
+ * Roles are deliberately narrow. Notes on the less obvious choices:
  *
  * - `accountant` may maintain the company profile and registrations (that is the
  *   job) but may not change who has access. Managing people is an owner action.
  * - `ca_reviewer` is read-only on data and is one of only two roles that can read
  *   the audit log. A reviewer who cannot see who changed what cannot review.
+ * - `ca_reviewer` holds `taxrule:verify` but no writing capability at all: a CA
+ *   signs a rate off, and nobody else can, but signing a rule off is not the
+ *   same as entering a transaction.
+ * - `viewer` can read vouchers but holds no `voucher:draft`. A read-only role
+ *   that can create drafts is not read-only.
  */
 export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
   owner: ALL,
@@ -43,9 +63,42 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'registration:write',
     'member:read',
     'invite:read',
+    'party:read',
+    'party:write',
+    'item:read',
+    'item:write',
+    'voucher:read',
+    'voucher:draft',
+    'voucher:post',
+    'document:read',
+    'document:upload',
+    'taxrule:read',
   ],
-  ca_reviewer: ['org:read', 'company:read', 'registration:read', 'member:read', 'audit:read'],
-  viewer: ['org:read', 'company:read', 'registration:read', 'member:read'],
+  ca_reviewer: [
+    'org:read',
+    'company:read',
+    'registration:read',
+    'member:read',
+    'audit:read',
+    'party:read',
+    'item:read',
+    'voucher:read',
+    'document:read',
+    'taxrule:read',
+    // A CA signing off a tax rule is the whole point of the reviewer role.
+    'taxrule:verify',
+  ],
+  viewer: [
+    'org:read',
+    'company:read',
+    'registration:read',
+    'member:read',
+    'party:read',
+    'item:read',
+    'voucher:read',
+    'document:read',
+    'taxrule:read',
+  ],
 };
 
 const CAPABILITY_SETS: Record<Role, ReadonlySet<Capability>> = {

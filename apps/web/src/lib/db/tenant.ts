@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { appDb, type AppDb } from './pool';
 import * as schema from './schema';
+import { ACCOUNT_GROUPS, ACCOUNTS } from '@/lib/accounting/chart-of-accounts';
+import { defaultBooksStartDate } from './create-company';
 
 export type Tx = Parameters<Parameters<AppDb['transaction']>[0]>[0];
 
@@ -61,18 +63,75 @@ export async function ensureUser(input: {
   return { id: row.id };
 }
 
+/**
+ * Creates an organization with product defaults. It delegates to
+ * `createCompany` rather than calling the two-argument SQL wrapper directly,
+ * because a company without a chart of accounts cannot hold a single voucher —
+ * a seeded organization must be as usable as one created through onboarding.
+ */
 export async function createOrganization(input: {
   clerkOrgId: string;
   legalName: string;
   ownerUserId: string;
 }): Promise<{ id: string }> {
+  return createCompany({
+    ...input,
+    tradeName: null,
+    gstin: null,
+    pan: null,
+    stateCode: null,
+    registrationType: 'regular',
+    fyStartMonth: 4,
+    booksStartDate: defaultBooksStartDate(),
+    accountGroups: ACCOUNT_GROUPS,
+    accounts: ACCOUNTS,
+  });
+}
+
+export interface CreateCompanyInput {
+  clerkOrgId: string;
+  legalName: string;
+  ownerUserId: string;
+  tradeName: string | null;
+  gstin: string | null;
+  pan: string | null;
+  stateCode: string | null;
+  registrationType: string;
+  fyStartMonth: number;
+  booksStartDate: string;
+  accountGroups: unknown;
+  accounts: unknown;
+}
+
+/**
+ * Creates a company and everything it cannot exist without, in one transaction:
+ * the organization, the creator's owner membership, its GSTIN registration, the
+ * seeded chart of accounts and the audit row.
+ *
+ * The chart is passed in from src/lib/accounting/chart-of-accounts.ts rather
+ * than written into the migration, so TypeScript stays the single source of
+ * truth and the tests that assert its structure check the same data the
+ * database receives.
+ */
+export async function createCompany(input: CreateCompanyInput): Promise<{ id: string }> {
   const rows = await appDb().execute<{ id: string }>(sql`
-    select app_create_organization(
-      ${input.clerkOrgId}, ${input.legalName}, ${input.ownerUserId}::uuid
+    select app_create_company(
+      ${input.clerkOrgId},
+      ${input.legalName},
+      ${uuidSchema.parse(input.ownerUserId)}::uuid,
+      ${input.tradeName},
+      ${input.gstin},
+      ${input.pan},
+      ${input.stateCode},
+      ${input.registrationType},
+      ${input.fyStartMonth},
+      ${input.booksStartDate}::date,
+      ${JSON.stringify(input.accountGroups)}::jsonb,
+      ${JSON.stringify(input.accounts)}::jsonb
     ) as id
   `);
   const row = rows.rows[0];
-  if (!row) throw new Error('app_create_organization returned no row');
+  if (!row) throw new Error('app_create_company returned no row');
   return { id: row.id };
 }
 

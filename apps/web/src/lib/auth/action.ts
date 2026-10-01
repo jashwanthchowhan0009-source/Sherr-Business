@@ -1,6 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
-import { requireOrgContext, type RequestContext } from './context';
+import { requireAccountContext, requireOrgContext, type AccountContext, type RequestContext } from './context';
 import { can, type Capability } from './permissions';
 import { withTenant, type Tx } from '@/lib/db/tenant';
 import { writeAudit, type AuditEntry } from '@/lib/audit/log';
@@ -112,4 +112,67 @@ function flattenFieldErrors(error: z.ZodError): Record<string, string[]> {
     (out[key] ??= []).push(issue.message);
   }
   return out;
+}
+
+// ─── account-scoped actions ─────────────────────────────────────────────────
+
+export interface AccountActionContext<TInput> extends AccountContext {
+  input: TInput;
+}
+
+export interface AccountActionConfig<TSchema extends z.ZodTypeAny, TOut> {
+  name: string;
+  input: TSchema;
+  rateLimit?: { limit: number; windowSeconds: number };
+  handler: (ctx: AccountActionContext<z.infer<TSchema>>) => Promise<TOut>;
+}
+
+/**
+ * Builds a server action for the few operations that legitimately run BEFORE an
+ * organization exists — today, only company creation.
+ *
+ * It deliberately offers less than defineAction: there is no capability to
+ * check and no tenant transaction to open, because there is no tenant yet. What
+ * it keeps is the parts that still apply — an authenticated, MFA-passed user,
+ * schema validation, rate limiting and the same result shape.
+ *
+ * Auditing is the handler's responsibility here, and is done inside
+ * app_create_company() where the new org id is in scope, so the company and its
+ * audit row still commit together.
+ */
+export function defineAccountAction<TSchema extends z.ZodTypeAny, TOut>(
+  config: AccountActionConfig<TSchema, TOut>,
+) {
+  const run = async (raw: unknown): Promise<ActionResult<TOut>> => {
+    try {
+      const ctx = await requireAccountContext();
+
+      const rl = config.rateLimit ?? { limit: 10, windowSeconds: 3600 };
+      const gate = await consume(`account-action:${config.name}:${ctx.userId}`, rl.limit, rl.windowSeconds);
+      if (!gate.ok) throw rateLimited();
+
+      const parsed = config.input.safeParse(raw);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          code: 'invalid_input',
+          error: 'Check the highlighted fields.',
+          fieldErrors: flattenFieldErrors(parsed.error),
+        };
+      }
+
+      return { ok: true, data: await config.handler({ ...ctx, input: parsed.data }) };
+    } catch (err) {
+      if (err instanceof AppError) return { ok: false, code: err.code, error: err.message };
+      console.error(`[account-action:${config.name}]`, err);
+      return { ok: false, code: 'unknown', error: 'Something went wrong. Nothing was changed.' };
+    }
+  };
+
+  Object.defineProperty(run, '__sherrbyteAction', {
+    value: { name: config.name, capability: null },
+    enumerable: false,
+  });
+
+  return run;
 }

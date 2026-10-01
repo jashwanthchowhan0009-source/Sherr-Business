@@ -82,3 +82,122 @@
 .status { font-size: 13px; }
 .statusOk { color: var(--sb-verified); }
 .statusErr { color: var(--sb-critical); }
+
+/* ── the upload panel, from the Input reference screen ─────────────────────
+   A container in focus gets a vivid blue outer border with a glow; the drop
+   target inside it is a large dashed rounded rectangle with generous inner
+   space. Both are read straight off the reference image via
+   docs/04-DESIGN-SYSTEM.md §1. */
+
+.drop {
+  border: 2px solid var(--sb-accent);
+  border-radius: var(--sb-r-panel);
+  background: var(--sb-lift-1);
+  box-shadow: 0 0 46px var(--sb-accent-soft);
+  padding: 26px;
+  margin: 0 0 20px;
+}
+
+.target {
+  border: 2px dashed rgba(255, 255, 255, 0.55);
+  border-radius: 26px;
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+  transition: border-color 0.14s, background 0.14s;
+}
+
+/* Dragging a file over the target. */
+.targetHot {
+  border-color: #fff;
+  background: rgba(42, 42, 255, 0.1);
+}
+
+.targetBusy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.targetTitle {
+  font-size: clamp(26px, 4.4vw, 34px);
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.targetHint {
+  font-size: 13.5px;
+  color: var(--sb-text-2);
+  margin-top: 8px;
+}
+
+.targetHint b {
+  color: var(--sb-text);
+  font-weight: 500;
+}
+
+/* The file input covers the target so the whole area is clickable, without
+   making the visible control a styled label that keyboard users cannot reach. */
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.targetLabel {
+  display: block;
+  cursor: pointer;
+}
+
+.fileInput:focus-visible + .target {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  justify-content: center;
+  margin: 18px 0 0;
+}
+
+.chip {
+  border: 1px solid var(--sb-hairline);
+  border-radius: var(--sb-r-pill);
+  padding: 8px 15px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--sb-text-2);
+  background: transparent;
+  cursor: pointer;
+  transition: 0.14s;
+}
+
+.chip:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--sb-text);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--sb-surface);
+  color: var(--sb-on-surface);
+  border-color: var(--sb-surface);
+}
+
+.chipHint {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--sb-text-3);
+  margin: 14px 0 0;
+}
