@@ -802,6 +802,36 @@ export const goodsReceiptLines = pgTable(
 );
 
 /**
+ * A GSTR-2B file downloaded from the portal.
+ *
+ * The parsed invoices are kept, not only the reconciliation, so the comparison
+ * can be re-run against the books as they stand later: what the portal said is a
+ * fact about the portal, what the books say is a fact about the books, and the
+ * difference between them moves as bills are entered.
+ */
+export const gstr2bUploads = pgTable(
+  'gstr2b_uploads',
+  {
+    id: pk(),
+    orgId: orgId(),
+    documentId: uuid('document_id'),
+    /** The period as the portal states it: '062025'. */
+    period: text('period'),
+    periodFrom: date('period_from').notNull(),
+    periodTo: date('period_to').notNull(),
+    /** Our GSTIN as the file states it, so a file for another company is caught. */
+    statedGstin: text('stated_gstin'),
+    invoiceCount: integer('invoice_count').notNull().default(0),
+    problemCount: integer('problem_count').notNull().default(0),
+    /** Amounts held as strings, so no figure passes through a float. */
+    invoices: jsonb('invoices').notNull().default([]),
+    uploadedBy: uuid('uploaded_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('gstr2b_uploads_org_period_idx').on(t.orgId, t.periodFrom)],
+);
+
+/**
  * Period locking. Step F locks periods properly; the table exists from step C
  * so the voucher-date trigger has somewhere to read from, and so the later
  * change adds behaviour rather than schema to a table holding real vouchers.
@@ -845,6 +875,7 @@ export const TENANT_TABLES = [
   'purchase_order_lines',
   'goods_receipts',
   'goods_receipt_lines',
+  'gstr2b_uploads',
 ] as const;
 
 /**

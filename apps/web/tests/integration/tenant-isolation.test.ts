@@ -171,9 +171,15 @@ describe('tenant isolation', () => {
            select $1, 'GRN/FIXTURE/0001', '25-26', date '2025-06-05', party.id, po.id, 'DC-1'
              from party, po
            returning id
+         ), grn_line as (
+           insert into goods_receipt_lines (org_id, grn_id, line_no, description, quantity, unit)
+           select $1, grn.id, 1, 'Fixture line', 10000, 'NOS' from grn
+           returning id
          )
-         insert into goods_receipt_lines (org_id, grn_id, line_no, description, quantity, unit)
-         select $1, grn.id, 1, 'Fixture line', 10000, 'NOS' from grn`,
+         insert into gstr2b_uploads (org_id, period, period_from, period_to, stated_gstin,
+                                      invoice_count, invoices)
+         values ($1, '062025', date '2025-06-01', date '2025-06-30', $2,
+                 1, '[{"invoiceNo":"FIXTURE"}]'::jsonb)`,
         [orgId, orgId === fx.orgA ? '29AAACP1234A1Z8' : '27AAACQ5678B1Z4'],
       );
     }
