@@ -1,16 +1,16 @@
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
-import { LogoGlyph } from '@/components/brand/Logo';
+import { LogoMark } from '@/components/brand/Logo';
 import styles from './shell.module.css';
 
 export function TopBar() {
   return (
     <header className={styles.top}>
-      {/* Home, as a logo in the top-left is expected to be. It was a bare
-          letter in a circle before, which looked like a brand mark and did
-          nothing when clicked. */}
+      {/* The whole mark, not the eye crop. A circle cropped to the eye read as
+          a close-up photograph rather than a logo; the tear is the shape people
+          recognise, and it only works whole. */}
       <Link className={styles.mark} href="/dashboard" aria-label="SherrByte — go to the dashboard">
-        <LogoGlyph size={42} priority />
+        <LogoMark height={38} priority />
       </Link>
       <button className={styles.cmd} type="button" disabled title="Available in a later phase">
         <span className={styles.cmdText}>
