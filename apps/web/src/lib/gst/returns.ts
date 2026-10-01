@@ -16,6 +16,8 @@
  * Pure and integer-only.
  */
 import { addTax, zeroTax, type TaxAmounts } from './set-off';
+import { calculateInvoice } from '@/lib/accounting/gst';
+import { QTY_SCALE } from '@/lib/accounting/units';
 
 /** A posted outward or inward supply, as a return needs to see it. */
 export interface ReturnSupply {
@@ -40,6 +42,14 @@ export interface ReturnSupply {
     unit: string | null;
     taxablePaise: bigint;
     tax: TaxAmounts;
+    /** The rate the line was taxed at. Needed where the tax must be recomputed. */
+    gstRateBps: number;
+    /**
+     * Reverse charge is a property of the line, not of the bill: one bill may
+     * carry both kinds, and treating the whole voucher as reverse-charge because
+     * one line is would put the rest of its value on 3.1(d).
+     */
+    reverseCharge: boolean;
   }[];
 }
 
@@ -279,6 +289,50 @@ export interface Gstr3bSummary {
  * is honest; implying none is needed would not be, so the field is shown with
  * that note rather than hidden.
  */
+/**
+ * What is owed on a reverse-charge line.
+ *
+ * Computed by the invoice engine from the line's own taxable value and rate, so
+ * the figure is arrived at exactly as it would have been had the supplier charged
+ * it. A negative taxable value — a debit note — carries through with its sign, so
+ * a note reduces the liability by addition like everywhere else.
+ */
+function reverseChargeTaxOn(
+  line: { taxablePaise: bigint; gstRateBps: number },
+  supplyType: ReturnSupply['supplyType'],
+): TaxAmounts {
+  if (line.gstRateBps === 0) return zeroTax();
+
+  // Zero-rated and exempt supplies carry no reverse-charge liability, and a
+  // missing supply type cannot be split into heads at all.
+  if (supplyType !== 'intra_state' && supplyType !== 'inter_state') return zeroTax();
+
+  const negative = line.taxablePaise < 0n;
+  const magnitude = negative ? -line.taxablePaise : line.taxablePaise;
+
+  const result = calculateInvoice(
+    [
+      {
+        // One unit at the line's value: the engine's quantity × price reduces to
+        // the price, so the taxable base is exact.
+        quantity: QTY_SCALE,
+        unitPricePaise: magnitude,
+        gstRateBps: line.gstRateBps,
+        reverseCharge: false,
+      },
+    ],
+    supplyType,
+  );
+
+  const sign = negative ? -1n : 1n;
+  return {
+    igst: result.igstPaise * sign,
+    cgst: result.cgstPaise * sign,
+    sgst: result.sgstPaise * sign,
+    cess: result.cessPaise * sign,
+  };
+}
+
 export function buildGstr3b(input: {
   from: string;
   to: string;
@@ -306,14 +360,34 @@ export function buildGstr3b(input: {
   }
 
   for (const supply of input.inward) {
-    if (supply.reverseCharge) {
-      // Tax on a reverse-charge purchase is both a liability and a credit, so it
-      // appears in 3.1(d) and in 4(A). It nets to nothing in cash, which is
-      // correct and is why the two must both be shown.
-      inwardReverseCharge.taxablePaise += supply.taxablePaise;
-      inwardReverseCharge.tax = addTax(inwardReverseCharge.tax, supply.tax);
+    // A bill with no lines recorded can only be taken at its voucher totals.
+    if (supply.hsnLines.length === 0) {
+      if (supply.reverseCharge) {
+        inwardReverseCharge.taxablePaise += supply.taxablePaise;
+        inwardReverseCharge.tax = addTax(inwardReverseCharge.tax, supply.tax);
+      }
+      itcAvailable = addTax(itcAvailable, supply.tax);
+      continue;
     }
-    itcAvailable = addTax(itcAvailable, supply.tax);
+
+    for (const line of supply.hsnLines) {
+      if (!line.reverseCharge) {
+        itcAvailable = addTax(itcAvailable, line.tax);
+        continue;
+      }
+
+      // The tax on a reverse-charge line is NOT on the supplier's invoice — that
+      // is what reverse charge means, and it is why the stored line tax is nil.
+      // The liability is computed from the rate by the same engine that would
+      // have charged it, so 3.1(d) reports what is actually owed. Reading the
+      // stored figure here would report nil and under-declare the tax.
+      const owed = reverseChargeTaxOn(line, supply.supplyType);
+      inwardReverseCharge.taxablePaise += line.taxablePaise;
+      inwardReverseCharge.tax = addTax(inwardReverseCharge.tax, owed);
+      // The same amount is creditable, so it appears in 4(A) too and nets to
+      // nothing in cash. Both sides are shown rather than cancelling silently.
+      itcAvailable = addTax(itcAvailable, owed);
+    }
   }
 
   const itcReversed = zeroTax();

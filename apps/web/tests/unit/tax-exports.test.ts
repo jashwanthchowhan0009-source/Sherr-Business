@@ -41,6 +41,8 @@ function supply(over: Partial<ReturnSupply> = {}): ReturnSupply {
         unit: 'QTL',
         taxablePaise: 100_000_00n,
         tax: tax(0n, 9_000_00n, 9_000_00n),
+        gstRateBps: 1800,
+        reverseCharge: false,
       },
     ],
     ...over,

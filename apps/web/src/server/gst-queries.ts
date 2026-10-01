@@ -75,7 +75,9 @@ async function returnSupplies(
                    'igst', l.igst_paise::text,
                    'cgst', l.cgst_paise::text,
                    'sgst', l.sgst_paise::text,
-                   'cess', l.cess_paise::text
+                   'cess', l.cess_paise::text,
+                   'gstRateBps', l.gst_rate_bps,
+                   'reverseCharge', l.reverse_charge
                  )
                ) filter (where l.id is not null),
                '[]'::jsonb
@@ -97,7 +99,9 @@ async function returnSupplies(
     return rows.map((r) => {
       // A note reduces the period's figures, so it carries a negative sign.
       const sign = r.voucher_type === noteType ? -1n : 1n;
-      const rawLines = Array.isArray(r.lines) ? (r.lines as Record<string, string | null>[]) : [];
+      const rawLines = Array.isArray(r.lines)
+        ? (r.lines as Record<string, string | number | boolean | null>[])
+        : [];
 
       return {
         voucherId: r.voucher_id,
@@ -117,16 +121,20 @@ async function returnSupplies(
         },
         reverseCharge: r.reverse_charge,
         hsnLines: rawLines.map((l) => ({
-          hsnSac: l.hsnSac ?? null,
-          description: l.description ?? '',
-          quantity: BigInt(l.quantity ?? '0'),
-          unit: l.unit ?? null,
-          taxablePaise: BigInt(l.taxablePaise ?? '0') * sign,
+          hsnSac: l.hsnSac === null || l.hsnSac === undefined ? null : String(l.hsnSac),
+          description: l.description === null || l.description === undefined
+            ? ''
+            : String(l.description),
+          quantity: BigInt(String(l.quantity ?? '0')),
+          unit: l.unit === null || l.unit === undefined ? null : String(l.unit),
+          gstRateBps: Number(l.gstRateBps ?? 0),
+          reverseCharge: l.reverseCharge === true || l.reverseCharge === 'true',
+          taxablePaise: BigInt(String(l.taxablePaise ?? '0')) * sign,
           tax: {
-            igst: BigInt(l.igst ?? '0') * sign,
-            cgst: BigInt(l.cgst ?? '0') * sign,
-            sgst: BigInt(l.sgst ?? '0') * sign,
-            cess: BigInt(l.cess ?? '0') * sign,
+            igst: BigInt(String(l.igst ?? '0')) * sign,
+            cgst: BigInt(String(l.cgst ?? '0')) * sign,
+            sgst: BigInt(String(l.sgst ?? '0')) * sign,
+            cess: BigInt(String(l.cess ?? '0')) * sign,
           },
         })),
       };

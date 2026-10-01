@@ -31,6 +31,8 @@ const supply = (over: Partial<ReturnSupply> = {}): ReturnSupply => ({
       unit: 'KGS',
       taxablePaise: 1_00_000_00n,
       tax: tax({ cgst: 9_000_00n, sgst: 9_000_00n }),
+      gstRateBps: 1800,
+      reverseCharge: false,
     },
   ],
   ...over,
@@ -132,6 +134,8 @@ describe('buildGstr1', () => {
             unit: 'KGS',
             taxablePaise: 5_000_00n,
             tax: tax({ cgst: 450_00n, sgst: 450_00n }),
+            gstRateBps: 1800,
+            reverseCharge: false,
           },
         ],
       }),
@@ -220,6 +224,8 @@ describe('buildGstr1', () => {
               unit: null,
               taxablePaise: 100_00n,
               tax: zeroTax(),
+              gstRateBps: 1800,
+              reverseCharge: false,
             },
           ],
         }),
@@ -240,29 +246,105 @@ describe('buildGstr1', () => {
 });
 
 describe('buildGstr3b', () => {
-  const r3b = buildGstr3b({
+  const r3bInputs = {
     from: '2025-06-01',
     to: '2025-06-30',
     outward: [
       supply(),
-      supply({ voucherId: 'v2', supplyType: 'zero_rated', tax: zeroTax(), taxablePaise: 50_000_00n }),
-      supply({ voucherId: 'v3', supplyType: 'exempt', tax: zeroTax(), taxablePaise: 20_000_00n }),
+      supply({
+        voucherId: 'v2',
+        supplyType: 'zero_rated',
+        tax: zeroTax(),
+        taxablePaise: 50_000_00n,
+        hsnLines: [
+          {
+            hsnSac: '1006',
+            description: 'Basmati rice',
+            quantity: QTY_SCALE,
+            unit: 'KGS',
+            taxablePaise: 50_000_00n,
+            tax: zeroTax(),
+            gstRateBps: 0,
+            reverseCharge: false,
+          },
+        ],
+      }),
+      supply({
+        voucherId: 'v3',
+        supplyType: 'exempt',
+        tax: zeroTax(),
+        taxablePaise: 20_000_00n,
+        hsnLines: [
+          {
+            hsnSac: '1006',
+            description: 'Basmati rice',
+            quantity: QTY_SCALE,
+            unit: 'KGS',
+            taxablePaise: 20_000_00n,
+            tax: zeroTax(),
+            gstRateBps: 0,
+            reverseCharge: false,
+          },
+        ],
+      }),
     ],
     inward: [
+      // Header and lines agree, as on a real bill. They did not in an earlier
+      // version of this fixture, and nothing noticed until GSTR-3B began reading
+      // lines rather than voucher totals — so the agreement is now asserted below.
       supply({
         voucherId: 'p1',
         voucherType: 'purchase',
         taxablePaise: 40_000_00n,
         tax: tax({ cgst: 3_600_00n, sgst: 3_600_00n }),
+        hsnLines: [
+          {
+            hsnSac: '1006',
+            description: 'Basmati rice',
+            quantity: 40n * QTY_SCALE,
+            unit: 'KGS',
+            taxablePaise: 40_000_00n,
+            tax: tax({ cgst: 3_600_00n, sgst: 3_600_00n }),
+            gstRateBps: 1800,
+            reverseCharge: false,
+          },
+        ],
       }),
+      // A reverse-charge purchase as one really arrives: the supplier charged no
+      // tax, so the line carries none. The ₹900 either way is the return's own
+      // computation from the rate, not a figure handed to it.
       supply({
         voucherId: 'p2',
         voucherType: 'purchase',
         taxablePaise: 10_000_00n,
-        tax: tax({ cgst: 900_00n, sgst: 900_00n }),
+        tax: zeroTax(),
         reverseCharge: true,
+        hsnLines: [
+          {
+            hsnSac: '9987',
+            description: 'Goods transport by road',
+            quantity: QTY_SCALE,
+            unit: null,
+            taxablePaise: 10_000_00n,
+            tax: zeroTax(),
+            gstRateBps: 1800,
+            reverseCharge: true,
+          },
+        ],
       }),
     ],
+  };
+
+  const r3b = buildGstr3b(r3bInputs);
+
+  it('has a fixture whose lines agree with its voucher totals', () => {
+    // A bill whose lines disagree with its header is not a bill, and a fixture
+    // that does it hides whichever of the two the code reads.
+    for (const supplyRow of [...[], ...r3bInputs.outward, ...r3bInputs.inward]) {
+      if (supplyRow.hsnLines.length === 0) continue;
+      const lineTaxable = supplyRow.hsnLines.reduce((a, l) => a + l.taxablePaise, 0n);
+      expect(lineTaxable, `${supplyRow.voucherId} lines vs header`).toBe(supplyRow.taxablePaise);
+    }
   });
 
   it('separates taxable, zero-rated and exempt outward supplies', () => {
@@ -277,6 +359,207 @@ describe('buildGstr3b', () => {
     expect(r3b.inwardReverseCharge.tax.cgst).toBe(900_00n);
     expect(r3b.itcAvailable.cgst).toBe(4_500_00n);
     expect(r3b.totalLiability.cgst).toBe(9_000_00n + 900_00n);
+  });
+
+  it('computes the reverse-charge liability from the rate, not from the invoice', () => {
+    // This is the whole point. The supplier charged no tax — that is what reverse
+    // charge means — so the stored line tax is nil. Reading it would report nil on
+    // 3.1(d) and under-declare tax the company owes. ₹10,000 at 18% intra-state is
+    // ₹900 of CGST and ₹900 of SGST.
+    const rcm = buildGstr3b({
+      from: 'a',
+      to: 'b',
+      outward: [],
+      inward: [
+        supply({
+          voucherId: 'rcm',
+          voucherType: 'purchase',
+          taxablePaise: 10_000_00n,
+          tax: zeroTax(),
+          reverseCharge: true,
+          hsnLines: [
+            {
+              hsnSac: '9987',
+              description: 'Goods transport by road',
+              quantity: QTY_SCALE,
+              unit: null,
+              taxablePaise: 10_000_00n,
+              tax: zeroTax(),
+              gstRateBps: 1800,
+              reverseCharge: true,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(rcm.inwardReverseCharge.taxablePaise).toBe(10_000_00n);
+    expect(rcm.inwardReverseCharge.tax.cgst).toBe(900_00n);
+    expect(rcm.inwardReverseCharge.tax.sgst).toBe(900_00n);
+    // The same amount is creditable, so cash payable nets to nothing.
+    expect(rcm.itcAvailable.cgst).toBe(900_00n);
+    expect(totalTax(rcm.totalLiability)).toBe(totalTax(rcm.itcNet));
+  });
+
+  it('splits reverse-charge tax by state, so an inter-state RCM supply is IGST', () => {
+    const rcm = buildGstr3b({
+      from: 'a',
+      to: 'b',
+      outward: [],
+      inward: [
+        supply({
+          voucherId: 'rcm-inter',
+          voucherType: 'purchase',
+          supplyType: 'inter_state',
+          taxablePaise: 10_000_00n,
+          tax: zeroTax(),
+          reverseCharge: true,
+          hsnLines: [
+            {
+              hsnSac: '9987',
+              description: 'Transport',
+              quantity: QTY_SCALE,
+              unit: null,
+              taxablePaise: 10_000_00n,
+              tax: zeroTax(),
+              gstRateBps: 1800,
+              reverseCharge: true,
+            },
+          ],
+        }),
+      ],
+    });
+    expect(rcm.inwardReverseCharge.tax.igst).toBe(1_800_00n);
+    expect(rcm.inwardReverseCharge.tax.cgst).toBe(0n);
+  });
+
+  it('puts only the reverse-charge lines of a mixed bill on 3.1(d)', () => {
+    // Reverse charge is a property of a line. Treating the whole voucher as
+    // reverse-charge because one line is would put the rest of its value on
+    // 3.1(d) and overstate the liability.
+    const mixed = buildGstr3b({
+      from: 'a',
+      to: 'b',
+      outward: [],
+      inward: [
+        supply({
+          voucherId: 'mixed',
+          voucherType: 'purchase',
+          taxablePaise: 30_000_00n,
+          tax: tax({ cgst: 1_800_00n, sgst: 1_800_00n }),
+          reverseCharge: true,
+          hsnLines: [
+            {
+              hsnSac: '1006',
+              description: 'Goods, taxed by the supplier',
+              quantity: QTY_SCALE,
+              unit: null,
+              taxablePaise: 20_000_00n,
+              tax: tax({ cgst: 1_800_00n, sgst: 1_800_00n }),
+              gstRateBps: 1800,
+              reverseCharge: false,
+            },
+            {
+              hsnSac: '9987',
+              description: 'Freight, reverse charge',
+              quantity: QTY_SCALE,
+              unit: null,
+              taxablePaise: 10_000_00n,
+              tax: zeroTax(),
+              gstRateBps: 500,
+              reverseCharge: true,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(mixed.inwardReverseCharge.taxablePaise).toBe(10_000_00n);
+    expect(mixed.inwardReverseCharge.tax.cgst).toBe(250_00n);
+    // Credit is the supplier's tax plus the reverse-charge tax.
+    expect(mixed.itcAvailable.cgst).toBe(1_800_00n + 250_00n);
+  });
+
+  it('charges no reverse-charge tax on a zero-rated or exempt supply', () => {
+    for (const supplyType of ['zero_rated', 'exempt'] as const) {
+      const r = buildGstr3b({
+        from: 'a',
+        to: 'b',
+        outward: [],
+        inward: [
+          supply({
+            voucherId: `rcm-${supplyType}`,
+            voucherType: 'purchase',
+            supplyType,
+            taxablePaise: 10_000_00n,
+            tax: zeroTax(),
+            reverseCharge: true,
+            hsnLines: [
+              {
+                hsnSac: '9987',
+                description: 'Exempt freight',
+                quantity: QTY_SCALE,
+                unit: null,
+                taxablePaise: 10_000_00n,
+                tax: zeroTax(),
+                gstRateBps: 1800,
+                reverseCharge: true,
+              },
+            ],
+          }),
+        ],
+      });
+      expect(totalTax(r.inwardReverseCharge.tax), supplyType).toBe(0n);
+    }
+  });
+
+  it('lets a reverse-charge debit note reduce the liability', () => {
+    const note = buildGstr3b({
+      from: 'a',
+      to: 'b',
+      outward: [],
+      inward: [
+        supply({
+          voucherId: 'dn',
+          voucherType: 'debit_note',
+          taxablePaise: -10_000_00n,
+          tax: zeroTax(),
+          reverseCharge: true,
+          hsnLines: [
+            {
+              hsnSac: '9987',
+              description: 'Freight reversed',
+              quantity: QTY_SCALE,
+              unit: null,
+              taxablePaise: -10_000_00n,
+              tax: zeroTax(),
+              gstRateBps: 1800,
+              reverseCharge: true,
+            },
+          ],
+        }),
+      ],
+    });
+    expect(note.inwardReverseCharge.tax.cgst).toBe(-900_00n);
+  });
+
+  it('falls back to the voucher totals when no lines were recorded', () => {
+    const headerOnly = buildGstr3b({
+      from: 'a',
+      to: 'b',
+      outward: [],
+      inward: [
+        supply({
+          voucherId: 'nolines',
+          voucherType: 'purchase',
+          taxablePaise: 10_000_00n,
+          tax: tax({ cgst: 900_00n, sgst: 900_00n }),
+          reverseCharge: false,
+          hsnLines: [],
+        }),
+      ],
+    });
+    expect(headerOnly.itcAvailable.cgst).toBe(900_00n);
   });
 
   it('totals the credit from every inward supply', () => {
