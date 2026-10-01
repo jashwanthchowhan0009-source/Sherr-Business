@@ -8,15 +8,17 @@
   background: linear-gradient(180deg, #0a0a0c 0%, rgba(10,10,12,.92) 70%, rgba(10,10,12,0) 100%);
 }
 .mark {
-  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
-  background: var(--sb-lift-3); border: 1px solid var(--sb-hairline);
-  display: grid; place-items: center;
-  /* The glyph is square and the circle crops its corners. That is deliberate:
-     the eye sits at the centre, so what the circle takes is outer claw. */
-  overflow: hidden;
-  transition: box-shadow .18s;
+  /* The mark stands on its own — no circle, no pill. It was in a circle cropped
+     to the eye, which read as a close-up photograph rather than a logo; and a
+     container around the whole tear only shrank it to a speck. The artwork is
+     its own shape against the canvas, which is what it was drawn to be.
+     The padding is hit area, not decoration: the mark is narrow. */
+  flex: 0 0 auto; height: 42px; padding: 0 6px;
+  display: grid; place-items: center; border-radius: 10px;
+  transition: opacity .18s;
 }
 .mark img { display: block; }
+.mark:hover { opacity: .78; }
 /* Focus is left to the global :focus-visible rule in globals.css, which already
    draws an accent ring on everything focusable. */
 .mark:hover { box-shadow: 0 0 0 3px rgba(255,255,255,.10); }

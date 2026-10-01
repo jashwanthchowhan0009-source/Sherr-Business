@@ -90,13 +90,11 @@ export function CompanyForm() {
       <div className={ui.formGrid}>
         <Field
           name="legalName" label="Registered legal name" required
-          placeholder="Shree Balaji Traders Pvt Ltd"
           hint="As it appears on your certificate of incorporation."
           errors={fieldErrors.legalName}
         />
         <Field
           name="tradeName" label="Trade name"
-          placeholder="Balaji Traders"
           hint="Optional. What customers know you as."
           errors={fieldErrors.tradeName}
         />
@@ -128,7 +126,7 @@ export function CompanyForm() {
             name="gstin"
             value={gstin}
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
-            placeholder="27AAPFU0939F1ZV"
+            placeholder="15 characters"
             maxLength={15}
             autoComplete="off"
             spellCheck={false}
@@ -150,8 +148,8 @@ export function CompanyForm() {
         </div>
       ) : (
         <Field
-          name="pan" label="PAN" placeholder="AAPFU0939F"
-          hint="Ten characters. Asked for directly because there is no GSTIN to read it from."
+          name="pan" label="PAN"
+          hint="Ten characters, like AAAAA9999A. Asked for directly because there is no GSTIN to read it from."
           errors={fieldErrors.pan}
         />
       )}

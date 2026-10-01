@@ -6,6 +6,7 @@ import { withTenant, type Tx } from '@/lib/db/tenant';
 import { writeAudit, type AuditEntry } from '@/lib/audit/log';
 import { consume } from '@/lib/ratelimit';
 import { AppError, forbidden, rateLimited } from '@/lib/errors';
+import { describeInfrastructureFailure } from '@/lib/infra-errors';
 
 export interface ActionContext<TInput> extends RequestContext {
   input: TInput;
@@ -86,8 +87,15 @@ export function defineAction<TSchema extends z.ZodTypeAny, TOut>(
       if (err instanceof AppError) {
         return { ok: false, code: err.code, error: err.message };
       }
-      console.error(`[action:${config.name}]`, err);
-      return { ok: false, code: 'unknown', error: 'Something went wrong. Nothing was changed.' };
+      // A misconfigured deployment is not a bug, and saying "something went
+      // wrong" about one leaves the person who can fix it with nothing to go on.
+      const infra = describeInfrastructureFailure(err);
+      console.error(`[action:${config.name}]${infra ? ` ${infra.reason}` : ''}`, err);
+      return {
+        ok: false,
+        code: 'unknown',
+        error: infra?.message ?? 'Something went wrong. Nothing was changed.',
+      };
     }
   };
 
@@ -164,8 +172,13 @@ export function defineAccountAction<TSchema extends z.ZodTypeAny, TOut>(
       return { ok: true, data: await config.handler({ ...ctx, input: parsed.data }) };
     } catch (err) {
       if (err instanceof AppError) return { ok: false, code: err.code, error: err.message };
-      console.error(`[account-action:${config.name}]`, err);
-      return { ok: false, code: 'unknown', error: 'Something went wrong. Nothing was changed.' };
+      const infra = describeInfrastructureFailure(err);
+      console.error(`[account-action:${config.name}]${infra ? ` ${infra.reason}` : ''}`, err);
+      return {
+        ok: false,
+        code: 'unknown',
+        error: infra?.message ?? 'Something went wrong. Nothing was changed.',
+      };
     }
   };
 
