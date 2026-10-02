@@ -171,3 +171,17 @@ export function natureOf(accountCode: string): AccountNature {
 export const SYSTEM_ACCOUNT_CODES = Object.freeze(
   ACCOUNTS.filter((a) => a.isSystem).map((a) => a.code),
 );
+
+/**
+ * Every code the standard chart seeds, system or not.
+ *
+ * Distinct from SYSTEM_ACCOUNT_CODES, which covers only the ones the engine
+ * itself posts to and nobody may remove. This wider set answers a different
+ * question: did this account arrive with the company, or did somebody add it?
+ * Capital Account and Bank Charges are seeded but freely editable, and calling
+ * them "added by you" to the person who has just created their company is
+ * simply untrue.
+ */
+export const STANDARD_ACCOUNT_CODES = Object.freeze(
+  new Set(ACCOUNTS.map((a) => a.code)),
+);

@@ -104,6 +104,7 @@ export interface ExtractionRow {
     mimeType: string;
     byteSize: string;
     declaredType: string | null;
+    declaredLabel: string | null;
     status: string;
   };
 }
@@ -115,7 +116,7 @@ export async function getExtraction(tx: Tx, id: string): Promise<ExtractionRow> 
            e.reviewed_by::text as reviewed_by, e.reviewed_at::text as reviewed_at,
            e.voucher_id::text as voucher_id, e.created_at::text as created_at,
            d.original_filename, d.mime_type, d.byte_size::text as byte_size,
-           d.declared_type, d.status as document_status
+           d.declared_type, d.declared_label, d.status as document_status
       from document_extractions e
       join documents d on d.id = e.document_id
      where e.id = ${id}::uuid
@@ -149,6 +150,7 @@ function mapRow(row: Record<string, unknown>): ExtractionRow {
       mimeType: String(row.mime_type),
       byteSize: String(row.byte_size),
       declaredType: (row.declared_type as string | null) ?? null,
+      declaredLabel: (row.declared_label as string | null) ?? null,
       status: String(row.document_status),
     },
   };
@@ -158,7 +160,8 @@ function mapRow(row: Record<string, unknown>): ExtractionRow {
 export async function listInbox(tx: Tx, limit = 50): Promise<InboxRow[]> {
   const { rows } = await tx.execute<Record<string, unknown>>(sql`
     select d.id as document_id, d.original_filename, d.mime_type,
-           d.byte_size::text as byte_size, d.declared_type, d.status as document_status,
+           d.byte_size::text as byte_size, d.declared_type, d.declared_label,
+           d.status as document_status,
            d.created_at::text as uploaded_at, d.linked_voucher_id::text as linked_voucher_id,
            e.id as extraction_id, e.status as extraction_status, e.failure_reason,
            e.extracted, e.validation, e.voucher_id::text as voucher_id,
@@ -182,6 +185,7 @@ export async function listInbox(tx: Tx, limit = 50): Promise<InboxRow[]> {
     mimeType: String(row.mime_type),
     byteSize: String(row.byte_size),
     declaredType: (row.declared_type as string | null) ?? null,
+    declaredLabel: (row.declared_label as string | null) ?? null,
     documentStatus: String(row.document_status),
     uploadedAt: String(row.uploaded_at),
     extractionId: (row.extraction_id as string | null) ?? null,
@@ -202,6 +206,7 @@ export interface InboxRow {
   mimeType: string;
   byteSize: string;
   declaredType: string | null;
+  declaredLabel: string | null;
   documentStatus: string;
   uploadedAt: string;
   extractionId: string | null;

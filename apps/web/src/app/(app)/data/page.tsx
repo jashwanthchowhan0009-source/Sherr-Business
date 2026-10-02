@@ -3,10 +3,25 @@ import { Band, Cards, DataCard, EmptyState, Panel, Table, ui } from '@/component
 import { can, ROLE_LABELS } from '@/lib/auth/permissions';
 import { getAuditLog, getCompany, getMembers } from '@/server/queries';
 import { getAccounts, getDataCounts, getDocuments } from '@/server/ledger-queries';
+import { STANDARD_ACCOUNT_CODES } from '@/lib/accounting/chart-of-accounts';
 import { withContext } from '../_guard';
 import { CompanyForm } from './CompanyForm';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Where an account came from.
+ *
+ * Three cases, not two. "System" is one the engine posts to and nobody may
+ * remove; "Standard" came with the company and can be renamed or removed; and
+ * only what somebody actually created is "Added by you". The page used to call
+ * the middle group "Added by you", which told a person who had just made their
+ * company that they had added accounts they had never seen.
+ */
+function originOf(account: { code: string; isSystem: boolean }): string {
+  if (account.isSystem) return 'System';
+  return STANDARD_ACCOUNT_CODES.has(account.code) ? 'Standard' : 'Added by you';
+}
 
 const dateTimeFmt = new Intl.DateTimeFormat('en-IN', {
   dateStyle: 'medium',
@@ -174,7 +189,7 @@ export default async function DataPage() {
                       {a.note ? <div className={ui.hint}>{a.note}</div> : null}
                     </td>
                     <td>{a.nature}</td>
-                    <td className={ui.hint}>{a.isSystem ? 'System' : 'Added by you'}</td>
+                    <td className={ui.hint}>{originOf(a)}</td>
                   </tr>
                 ))}
               </Table>

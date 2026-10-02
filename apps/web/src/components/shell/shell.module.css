@@ -95,3 +95,21 @@
   .stage { padding-bottom: 230px; }
   .seg { padding: 9px 14px; min-width: 70px; font-size: 11px; }
 }
+
+/* Which half of the app you are in — see SideSwitch. */
+.sides { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+.side {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border-radius: 999px;
+  color: var(--sb-text-3); text-decoration: none;
+  font-size: 12.5px; letter-spacing: .01em;
+  border: 1px solid transparent;
+}
+.side:hover { color: var(--sb-text-2); }
+.sideOn {
+  color: var(--sb-text);
+  background: rgba(255,255,255,.07);
+  border-color: var(--sb-hairline);
+}
+.sideLabel { display: none; }
+@media (min-width: 720px) { .sideLabel { display: inline; } }

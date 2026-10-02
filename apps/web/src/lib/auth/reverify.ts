@@ -25,11 +25,20 @@ export type ReverifyState =
  * in this session".
  *
  * Two things make a session fresh. The direct signal is a recent `fva[1]`. The
- * second is a recent *first* factor on an account with two-factor enabled: this
- * app makes MFA compulsory in middleware, so a sign-in that completed minutes ago
- * on such an account cannot have happened without the second factor — Clerk will
- * not finish one. That covers the common case of a token template exposing the
- * ages but an older Clerk reporting -1 for the second slot.
+ * second is a recent *first* factor on an account with two-factor enabled.
+ *
+ * That second rule carries real weight under Device Trust, which is how this app
+ * is meant to be configured: a browser is untrusted until a second factor has
+ * been verified on it once, and trusted afterwards, so later sign-ins there skip
+ * the authenticator and `fva[1]` stays at -1 for good. Without the rule, a PIN
+ * reset would be impossible on exactly the devices people use every day.
+ *
+ * What it still requires is a sign-in minutes old on a browser that has proved
+ * the second factor at least once. Somebody who finds an unattended screen has
+ * neither: the session there was signed in hours ago, so `fva[0]` is stale and
+ * the reset is refused. That is a weaker promise than "re-verify the
+ * authenticator every time" and it is the deliberate trade for not asking for a
+ * code on every sign-in.
  *
  * Everything else fails closed. Treating an unreadable signal as verified would
  * make the lock resettable by whoever holds the session it exists to protect.

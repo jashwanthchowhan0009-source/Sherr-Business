@@ -23,6 +23,7 @@ const MAX_MB = 10;
  */
 export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inboxEmail: string }) {
   const [declaredType, setDeclaredType] = useState<DeclaredDocumentType | null>(null);
+  const [declaredLabel, setDeclaredLabel] = useState('');
   const [dragging, setDragging] = useState(false);
   const [messages, setMessages] = useState<{ kind: 'ok' | 'err'; text: string }[]>([]);
   const [pending, startTransition] = useTransition();
@@ -52,6 +53,7 @@ export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inbox
           mimeType: file.type,
           contentBase64,
           ...(declaredType ? { declaredType } : {}),
+          ...(declaredLabel.trim() ? { declaredLabel: declaredLabel.trim() } : {}),
         });
 
         results.push(
@@ -125,6 +127,19 @@ export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inbox
           </div>
         </label>
 
+        {/* Typed first, chips second. The chips cover the common papers; this is
+            for the one that is none of them, and a word the person chose
+            themselves will still mean something to them months later. */}
+        <input
+          className={ui.typeField}
+          type="text"
+          value={declaredLabel}
+          maxLength={60}
+          placeholder="Enter your input type…"
+          aria-label="Input type, in your own words"
+          onChange={(e) => setDeclaredLabel(e.target.value)}
+        />
+
         <div className={ui.chips} role="group" aria-label="Input type">
           {DECLARED_DOCUMENT_TYPES.map((type) => (
             <button
@@ -142,7 +157,9 @@ export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inbox
         <p className={ui.chipHint}>
           {declaredType
             ? `Tagging uploads as ${DECLARED_DOCUMENT_TYPE_LABELS[declaredType]}. This is recorded as what you said it is — nothing is read from the file yet.`
-            : 'Optional: tag what you are uploading. Files are stored either way.'}
+            : declaredLabel.trim()
+              ? `Tagging uploads as "${declaredLabel.trim()}". Your own words, kept as you wrote them.`
+              : 'Optional: tag what you are uploading. Files are stored either way.'}
         </p>
       </div>
 
