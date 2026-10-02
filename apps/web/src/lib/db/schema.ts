@@ -606,6 +606,7 @@ export const documents = pgTable(
     contentHash: text('content_hash').notNull(),
     /** What the uploader said it is. AI classification arrives in step H. */
     declaredType: text('declared_type'),
+    declaredLabel: text('declared_label'),
     status: text('status').notNull().default('stored').$type<DocumentStatus>(),
     uploadedBy: uuid('uploaded_by'),
     linkedVoucherId: uuid('linked_voucher_id'),

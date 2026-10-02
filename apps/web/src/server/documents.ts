@@ -16,6 +16,8 @@ import { conflict, invalidInput, notFound } from '@/lib/errors';
 
 const uploadSchema = z.object({
   declaredType: z.enum(DECLARED_DOCUMENT_TYPES).optional(),
+  /** What the person typed when none of the chips fit. A label, never a type. */
+  declaredLabel: z.string().trim().min(1).max(60).optional(),
   originalFilename: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(1).max(128),
   /** Base64 of the file. Bounded by MAX_UPLOAD_BYTES once decoded. */
@@ -80,6 +82,7 @@ const uploadDocumentAction = defineAction({
           byteSize: BigInt(bytes.byteLength),
           contentHash,
           declaredType: input.declaredType ?? null,
+          declaredLabel: input.declaredLabel ?? null,
           uploadedBy: userId,
         })
         .returning();
@@ -101,6 +104,7 @@ const uploadDocumentAction = defineAction({
         mimeType: row.mimeType,
         byteSize: row.byteSize.toString(),
         declaredType: row.declaredType,
+        declaredLabel: row.declaredLabel,
         contentHash,
         driver: driver.name,
       },

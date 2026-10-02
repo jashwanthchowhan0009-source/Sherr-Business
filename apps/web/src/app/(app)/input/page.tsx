@@ -8,6 +8,7 @@ import { extractionConfigured, getInbox } from '@/server/inbox-queries';
 import { withContext } from '../_guard';
 import { UploadPanel } from './UploadPanel';
 import { ExtractButton } from './ExtractButton';
+import { DeleteDocumentButton } from './DeleteDocumentButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,6 +74,7 @@ export default async function InputPage() {
                   <th className={ui.right}>Size</th>
                   <th>Reading</th>
                   <th>Next</th>
+                  <th />
                 </tr>
               }
             >
@@ -86,6 +88,8 @@ export default async function InputPage() {
                     <td>
                       {doc.declaredType ? (
                         DECLARED_DOCUMENT_TYPE_LABELS[doc.declaredType as DeclaredDocumentType]
+                      ) : doc.declaredLabel ? (
+                        doc.declaredLabel
                       ) : (
                         <span className={ui.hint}>Not tagged</span>
                       )}
@@ -123,6 +127,12 @@ export default async function InputPage() {
                           }
                         />
                       )}
+                    </td>
+                    <td>
+                      <DeleteDocumentButton
+                        id={doc.documentId}
+                        filename={doc.originalFilename}
+                      />
                     </td>
                   </tr>
                 );

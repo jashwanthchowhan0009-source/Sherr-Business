@@ -345,7 +345,26 @@
 .pinRow { display: flex; gap: 10px; justify-content: center; }
 .pinBox {
   width: 44px; height: 54px; text-align: center; font-size: 22px;
-  border-radius: 10px; background: var(--sb-surface); color: var(--sb-text);
+  border-radius: 10px; background: var(--sb-surface); color: #0b0b0c;
   border: 1px solid var(--sb-hairline);
 }
 .pinBox:focus-visible { border-color: var(--sb-accent); }
+
+/* The free-text input type on the upload panel. */
+.typeField {
+  width: 100%; max-width: 420px; margin: 0 auto 12px; display: block;
+  padding: 10px 14px; border-radius: 999px;
+  background: var(--sb-surface); color: var(--sb-text);
+  border: 1px solid var(--sb-hairline); font-size: 13.5px; text-align: center;
+}
+.typeField::placeholder { color: var(--sb-text-3); }
+.typeField:focus-visible { outline: none; border-color: var(--sb-accent); }
+
+/* A button that reads as a link — for row-level actions inside a table. */
+.linkish {
+  background: none; border: 0; padding: 0;
+  color: var(--sb-text-3); font: inherit; font-size: 12.5px;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.linkish:hover:not(:disabled) { color: var(--sb-text); }
+.linkish:disabled { cursor: default; opacity: .6; }
