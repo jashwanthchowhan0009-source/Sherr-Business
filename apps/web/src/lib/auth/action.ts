@@ -5,8 +5,9 @@ import { can, type Capability } from './permissions';
 import { withTenant, type Tx } from '@/lib/db/tenant';
 import { writeAudit, type AuditEntry } from '@/lib/audit/log';
 import { consume } from '@/lib/ratelimit';
-import { AppError, forbidden, rateLimited } from '@/lib/errors';
+import { AppError, forbidden, rateLimited, screenLocked } from '@/lib/errors';
 import { describeInfrastructureFailure } from '@/lib/infra-errors';
+import { screenUnlocked } from '@/lib/auth/unlock';
 
 export interface ActionContext<TInput> extends RequestContext {
   input: TInput;
@@ -48,6 +49,11 @@ export function defineAction<TSchema extends z.ZodTypeAny, TOut>(
   const run = async (raw: unknown): Promise<ActionResult<TOut>> => {
     try {
       const ctx = await requireOrgContext();
+
+      // A page that is not rendered can still be acted on by anyone who knows
+      // the action's name, so the lock is enforced here too rather than only in
+      // the guard. This is the line that makes it a lock and not a curtain.
+      if (!(await screenUnlocked(ctx.userId))) throw screenLocked();
 
       if (!can(ctx.role, config.capability)) {
         throw forbidden(describe(config.capability));

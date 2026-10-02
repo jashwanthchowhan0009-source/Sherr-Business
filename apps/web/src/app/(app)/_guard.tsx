@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { optionalOrgContext, type RequestContext } from '@/lib/auth/context';
+import { screenUnlocked } from '@/lib/auth/unlock';
 import { EmptyState, Panel, ui } from '@/components/ui';
 
 /**
@@ -16,6 +17,16 @@ export async function withContext(
   // Signing in is handled upstream by middleware, so reaching here without a
   // context means the user exists but belongs to no organization.
   if (!ctx) redirect('/onboarding/company');
+
+  // The screen lock. Checked here rather than drawn over the page, because an
+  // overlay on top of data the browser already holds is decoration: the page
+  // simply is not rendered until the PIN has been entered.
+  if (!(await screenUnlocked(ctx.userId))) {
+    // The lock screen reads from the database which of set, enter or reset it is,
+    // so there is nothing to tell it here.
+    redirect('/lock');
+  }
+
   return render(ctx);
 }
 

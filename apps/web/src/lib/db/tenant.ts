@@ -47,6 +47,21 @@ export async function withTenant<T>(
  * and creating an organization. The application role cannot insert into those
  * tables directly — only through these vetted functions.
  */
+/**
+ * A transaction scoped to one user and no organization.
+ *
+ * The screen lock runs before a company exists and is nobody else's business
+ * inside one, so its two tables are keyed to `app.current_user_id` alone. Using
+ * withTenant here would require an organization that may not exist yet.
+ */
+export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  const id = uuidSchema.parse(userId);
+  return appDb().transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.current_user_id', ${id}, true)`);
+    return fn(tx);
+  });
+}
+
 export async function ensureUser(input: {
   clerkUserId: string;
   email: string;
