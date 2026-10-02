@@ -71,7 +71,10 @@ const createCompanyAction = defineAccountAction({
   name: 'company.created',
   input: companySchema,
   // Creating companies is rare and creates a Clerk organization each time.
-  rateLimit: { limit: 3, windowSeconds: 3600 },
+  // Raised from three. Creating a company is a once-ever action, so the limit is
+  // only there to stop a script; three left somebody who hit a few server errors
+  // locked out of onboarding for an hour with nothing they could do about it.
+  rateLimit: { limit: 20, windowSeconds: 3600 },
   handler: async ({ userId, clerkUserId, input }) => {
     const parsed = input.gstin ? validateGstin(input.gstin) : null;
     const derived = parsed?.ok ? parsed.parts : null;
