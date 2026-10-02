@@ -4,7 +4,7 @@ import { requireAccountContext, requireOrgContext, type AccountContext, type Req
 import { can, type Capability } from './permissions';
 import { withTenant, type Tx } from '@/lib/db/tenant';
 import { writeAudit, type AuditEntry } from '@/lib/audit/log';
-import { consume } from '@/lib/ratelimit';
+import { consume, refund } from '@/lib/ratelimit';
 import { AppError, forbidden, rateLimited, screenLocked } from '@/lib/errors';
 import { describeInfrastructureFailure } from '@/lib/infra-errors';
 import { screenUnlocked } from '@/lib/auth/unlock';
@@ -33,6 +33,28 @@ export interface ActionConfig<TSchema extends z.ZodTypeAny, TOut> {
 const DEFAULT_RATE_LIMIT = { limit: 30, windowSeconds: 60 };
 
 /**
+ * Hands back the attempt an unexpected failure consumed.
+ *
+ * Called only where the action died of something that is not the caller's doing
+ * — a database that cannot be reached, a credential that is wrong. A rejection
+ * the caller caused (bad input, no permission, already over the limit) keeps its
+ * charge, because those are exactly what the limit is counting.
+ *
+ * Refunding is best-effort: it runs after a failure, and whatever broke the
+ * action may well break this too. A refund that does not happen leaves the
+ * caller where they already were, so it is swallowed rather than replacing the
+ * real error with one about bookkeeping.
+ */
+async function giveBackTheAttempt(key: string | null): Promise<void> {
+  if (!key) return;
+  try {
+    await refund(key);
+  } catch {
+    // Deliberately quiet. See above.
+  }
+}
+
+/**
  * Builds a server action.
  *
  * This is the only sanctioned way to write a mutation. It resolves the caller,
@@ -47,6 +69,7 @@ export function defineAction<TSchema extends z.ZodTypeAny, TOut>(
   config: ActionConfig<TSchema, TOut>,
 ) {
   const run = async (raw: unknown): Promise<ActionResult<TOut>> => {
+    let rateLimitKey: string | null = null;
     try {
       const ctx = await requireOrgContext();
 
@@ -60,12 +83,13 @@ export function defineAction<TSchema extends z.ZodTypeAny, TOut>(
       }
 
       const rl = config.rateLimit ?? DEFAULT_RATE_LIMIT;
-      const gate = await consume(
-        `action:${config.name}:${ctx.userId}`,
-        rl.limit,
-        rl.windowSeconds,
-      );
-      if (!gate.ok) throw rateLimited();
+      rateLimitKey = `action:${config.name}:${ctx.userId}`;
+      const gate = await consume(rateLimitKey, rl.limit, rl.windowSeconds);
+      if (!gate.ok) {
+        // Already over: do not refund this one, or the window never fills.
+        rateLimitKey = null;
+        throw rateLimited();
+      }
 
       const parsed = config.input.safeParse(raw);
       if (!parsed.success) {
@@ -97,6 +121,7 @@ export function defineAction<TSchema extends z.ZodTypeAny, TOut>(
       // wrong" about one leaves the person who can fix it with nothing to go on.
       const infra = describeInfrastructureFailure(err);
       console.error(`[action:${config.name}]${infra ? ` ${infra.reason}` : ''}`, err);
+      await giveBackTheAttempt(rateLimitKey);
       return {
         ok: false,
         code: 'unknown',
@@ -158,12 +183,17 @@ export function defineAccountAction<TSchema extends z.ZodTypeAny, TOut>(
   config: AccountActionConfig<TSchema, TOut>,
 ) {
   const run = async (raw: unknown): Promise<ActionResult<TOut>> => {
+    let rateLimitKey: string | null = null;
     try {
       const ctx = await requireAccountContext();
 
       const rl = config.rateLimit ?? { limit: 10, windowSeconds: 3600 };
-      const gate = await consume(`account-action:${config.name}:${ctx.userId}`, rl.limit, rl.windowSeconds);
-      if (!gate.ok) throw rateLimited();
+      rateLimitKey = `account-action:${config.name}:${ctx.userId}`;
+      const gate = await consume(rateLimitKey, rl.limit, rl.windowSeconds);
+      if (!gate.ok) {
+        rateLimitKey = null;
+        throw rateLimited();
+      }
 
       const parsed = config.input.safeParse(raw);
       if (!parsed.success) {
@@ -180,6 +210,7 @@ export function defineAccountAction<TSchema extends z.ZodTypeAny, TOut>(
       if (err instanceof AppError) return { ok: false, code: err.code, error: err.message };
       const infra = describeInfrastructureFailure(err);
       console.error(`[account-action:${config.name}]${infra ? ` ${infra.reason}` : ''}`, err);
+      await giveBackTheAttempt(rateLimitKey);
       return {
         ok: false,
         code: 'unknown',

@@ -60,3 +60,21 @@ export async function pruneRateLimits(olderThanSeconds = 3600): Promise<void> {
     sql`delete from rate_limits where window_start < now() - make_interval(secs => ${olderThanSeconds})`,
   );
 }
+
+/**
+ * Gives back one unit of a window that was consumed for nothing.
+ *
+ * A limit exists to stop somebody hammering an action, not to punish them for
+ * an outage. When a handler fails for a reason that is not the caller's doing —
+ * a database that is unreachable, a credential that is wrong — charging them for
+ * the attempt means three bad minutes can cost an hour of being locked out of
+ * onboarding, with nothing they can do about it.
+ *
+ * Never drops below zero, and never extends the window: a refund in a window
+ * that has already rolled over is simply a no-op.
+ */
+export async function refund(key: string): Promise<void> {
+  await appDb().execute(sql`
+    update rate_limits set count = greatest(0, count - 1) where key = ${key}
+  `);
+}
