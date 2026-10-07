@@ -189,6 +189,72 @@ describe('tenant isolation', () => {
            from doc`,
         [orgId, orgId === fx.orgA ? '29AAACP1234A1Z8' : '27AAACQ5678B1Z4'],
       );
+
+      // Step J: the ERP module scaffold. One row per new table, chained off the
+      // party and item already seeded above for this org.
+      await owner.query(
+        `with
+           party as (select id from parties where org_id = $1 limit 1),
+           item  as (select id from items   where org_id = $1 limit 1),
+           stage as (
+             insert into pipeline_stages (org_id, name, sort_order)
+             values ($1, 'Fixture Stage', 1)
+             returning id
+           ),
+           deal as (
+             insert into deals (org_id, party_id, stage_id, title, value_paise)
+             select $1, party.id, stage.id, 'Fixture Deal', 100000 from party, stage
+             returning id
+           ),
+           activity as (
+             insert into deal_activities (org_id, deal_id, kind, body)
+             select $1, deal.id, 'note', 'Fixture activity' from deal
+             returning id
+           ),
+           warehouse as (
+             insert into warehouses (org_id, code, name)
+             values ($1, 'FIXT', 'Fixture Warehouse')
+             returning id
+           ),
+           stock_level as (
+             insert into stock_levels (org_id, item_id, warehouse_id, quantity_on_hand)
+             select $1, item.id, warehouse.id, 100000 from item, warehouse
+             returning id
+           ),
+           movement as (
+             insert into stock_movements (org_id, item_id, warehouse_id, movement_type, quantity)
+             select $1, item.id, warehouse.id, 'receipt', 100000 from item, warehouse
+             returning id
+           ),
+           department as (
+             insert into departments (org_id, name)
+             values ($1, 'Fixture Department')
+             returning id
+           ),
+           employee as (
+             insert into employees (org_id, department_id, full_name, monthly_ctc_paise)
+             select $1, department.id, 'Fixture Employee', 5000000 from department
+             returning id
+           ),
+           payroll_run as (
+             insert into payroll_runs (org_id, period_month, period_year, total_gross_paise, total_net_paise)
+             values ($1, 6, 2025, 5000000, 5000000)
+             returning id
+           ),
+           payslip as (
+             insert into payslips (org_id, payroll_run_id, employee_id, gross_paise, net_paise)
+             select $1, payroll_run.id, employee.id, 5000000, 5000000 from payroll_run, employee
+             returning id
+           ),
+           project as (
+             insert into projects (org_id, party_id, name)
+             select $1, party.id, 'Fixture Project' from party
+             returning id
+           )
+         insert into project_tasks (org_id, project_id, title)
+         select $1, project.id, 'Fixture Task' from project`,
+        [orgId],
+      );
     }
   });
 

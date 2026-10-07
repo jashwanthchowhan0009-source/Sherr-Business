@@ -57,6 +57,22 @@ export const CAPABILITIES = [
   // since an approval produces a draft voucher — approving is bookkeeping, and
   // nothing about an AI reading a file changes who may enter a transaction.
   'document:extract',
+
+  // Step J: the ERP module scaffold (CRM, inventory ops, HR, projects).
+  // None of these roles yet exist as dedicated owners of a module — a sales
+  // rep, an HR manager, a warehouse lead. Until they do, write access to each
+  // module sits with 'owner' alone (ROLE_CAPABILITIES.owner is ALL, below);
+  // the other three roles get read-only so the data is visible without
+  // deciding, here, who outside the accounting roles should be allowed to
+  // change it.
+  'crm:read',
+  'crm:write',
+  'inventory_ops:read',
+  'inventory_ops:write',
+  'hr:read',
+  'hr:write',
+  'project:read',
+  'project:write',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -105,6 +121,12 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     // An accountant enters closing stock; that is bookkeeping. Deciding the
     // period is closed is not.
     'closing:write',
+    // Step J: read-only until a dedicated module role exists. See the comment
+    // above the capability list.
+    'crm:read',
+    'inventory_ops:read',
+    'hr:read',
+    'project:read',
   ],
   ca_reviewer: [
     'org:read',
@@ -121,6 +143,10 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'taxrule:verify',
     'bank:read',
     'procurement:read',
+    'crm:read',
+    'inventory_ops:read',
+    'hr:read',
+    'project:read',
   ],
   viewer: [
     'org:read',
@@ -134,6 +160,10 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'taxrule:read',
     'bank:read',
     'procurement:read',
+    'crm:read',
+    'inventory_ops:read',
+    'hr:read',
+    'project:read',
   ],
 };
 
