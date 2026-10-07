@@ -893,6 +893,257 @@ export const documentExtractions = pgTable(
   ],
 );
 
+// ─── ERP modules (shallow scaffold) ─────────────────────────────────────────
+//
+// Step J. Four modules, one or two tables deep, on top of the accounting core
+// above. None of these post to the ledger or touch a voucher — see the banner
+// comment in drizzle/0011_erp_modules_shallow.sql for the boundary this draws.
+
+export const DEAL_STATUSES = ['open', 'won', 'lost'] as const;
+export type DealStatus = (typeof DEAL_STATUSES)[number];
+
+export const DEAL_ACTIVITY_KINDS = ['note', 'call', 'email', 'meeting', 'stage_change'] as const;
+export type DealActivityKind = (typeof DEAL_ACTIVITY_KINDS)[number];
+
+export const pipelineStages = pgTable(
+  'pipeline_stages',
+  {
+    id: pk(),
+    orgId: orgId(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isWon: boolean('is_won').notNull().default(false),
+    isLost: boolean('is_lost').notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('pipeline_stages_org_name_key').on(t.orgId, t.name),
+    index('pipeline_stages_org_sort_idx').on(t.orgId, t.sortOrder),
+  ],
+);
+
+export const deals = pgTable(
+  'deals',
+  {
+    id: pk(),
+    orgId: orgId(),
+    partyId: uuid('party_id'),
+    stageId: uuid('stage_id').notNull(),
+    title: text('title').notNull(),
+    valuePaise: paise('value_paise').notNull().default(0n),
+    expectedCloseDate: date('expected_close_date'),
+    status: text('status').notNull().default('open').$type<DealStatus>(),
+    ownerUserId: uuid('owner_user_id'),
+    notes: text('notes'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('deals_org_stage_idx').on(t.orgId, t.stageId),
+    index('deals_org_status_idx').on(t.orgId, t.status),
+  ],
+);
+
+export const dealActivities = pgTable(
+  'deal_activities',
+  {
+    id: pk(),
+    orgId: orgId(),
+    dealId: uuid('deal_id').notNull(),
+    kind: text('kind').notNull().default('note').$type<DealActivityKind>(),
+    body: text('body'),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('deal_activities_org_deal_idx').on(t.orgId, t.dealId, t.createdAt)],
+);
+
+export const STOCK_MOVEMENT_TYPES = [
+  'receipt',
+  'issue',
+  'transfer_in',
+  'transfer_out',
+  'adjustment',
+] as const;
+export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
+
+export const warehouses = pgTable(
+  'warehouses',
+  {
+    id: pk(),
+    orgId: orgId(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    address: text('address'),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('warehouses_org_code_key').on(t.orgId, t.code)],
+);
+
+/** Quantity columns use the same scaled-bigint convention as voucher_lines.quantity (×10,000). */
+export const stockLevels = pgTable(
+  'stock_levels',
+  {
+    id: pk(),
+    orgId: orgId(),
+    itemId: uuid('item_id').notNull(),
+    warehouseId: uuid('warehouse_id').notNull(),
+    quantityOnHand: bigint('quantity_on_hand', { mode: 'bigint' }).notNull().default(0n),
+    reorderPoint: bigint('reorder_point', { mode: 'bigint' }),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('stock_levels_org_item_warehouse_key').on(t.orgId, t.itemId, t.warehouseId)],
+);
+
+export const stockMovements = pgTable(
+  'stock_movements',
+  {
+    id: pk(),
+    orgId: orgId(),
+    itemId: uuid('item_id').notNull(),
+    warehouseId: uuid('warehouse_id').notNull(),
+    movementType: text('movement_type').notNull().$type<StockMovementType>(),
+    quantity: bigint('quantity', { mode: 'bigint' }).notNull(),
+    referenceKind: text('reference_kind'),
+    referenceId: text('reference_id'),
+    note: text('note'),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('stock_movements_org_item_idx').on(t.orgId, t.itemId, t.createdAt),
+    index('stock_movements_org_warehouse_idx').on(t.orgId, t.warehouseId, t.createdAt),
+  ],
+);
+
+export const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern'] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+export const EMPLOYEE_STATUSES = ['active', 'on_leave', 'exited'] as const;
+export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];
+
+export const PAYROLL_RUN_STATUSES = ['draft', 'approved', 'paid'] as const;
+export type PayrollRunStatus = (typeof PAYROLL_RUN_STATUSES)[number];
+
+export const departments = pgTable(
+  'departments',
+  {
+    id: pk(),
+    orgId: orgId(),
+    name: text('name').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('departments_org_name_key').on(t.orgId, t.name)],
+);
+
+export const employees = pgTable(
+  'employees',
+  {
+    id: pk(),
+    orgId: orgId(),
+    userId: uuid('user_id'),
+    departmentId: uuid('department_id'),
+    fullName: text('full_name').notNull(),
+    email: text('email'),
+    phone: text('phone'),
+    designation: text('designation'),
+    employmentType: text('employment_type').notNull().default('full_time').$type<EmploymentType>(),
+    dateOfJoining: date('date_of_joining'),
+    dateOfExit: date('date_of_exit'),
+    status: text('status').notNull().default('active').$type<EmployeeStatus>(),
+    /** Informational only until a later integration decides how CTC meets the ledger. */
+    monthlyCtcPaise: paise('monthly_ctc_paise'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('employees_org_department_idx').on(t.orgId, t.departmentId),
+    index('employees_org_status_idx').on(t.orgId, t.status),
+  ],
+);
+
+export const payrollRuns = pgTable(
+  'payroll_runs',
+  {
+    id: pk(),
+    orgId: orgId(),
+    periodMonth: integer('period_month').notNull(),
+    periodYear: integer('period_year').notNull(),
+    status: text('status').notNull().default('draft').$type<PayrollRunStatus>(),
+    totalGrossPaise: paise('total_gross_paise').notNull().default(0n),
+    totalDeductionsPaise: paise('total_deductions_paise').notNull().default(0n),
+    totalNetPaise: paise('total_net_paise').notNull().default(0n),
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('payroll_runs_org_period_key').on(t.orgId, t.periodYear, t.periodMonth),
+  ],
+);
+
+export const payslips = pgTable(
+  'payslips',
+  {
+    id: pk(),
+    orgId: orgId(),
+    payrollRunId: uuid('payroll_run_id').notNull(),
+    employeeId: uuid('employee_id').notNull(),
+    grossPaise: paise('gross_paise').notNull().default(0n),
+    deductionsPaise: paise('deductions_paise').notNull().default(0n),
+    netPaise: paise('net_paise').notNull().default(0n),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('payslips_org_run_employee_key').on(t.orgId, t.payrollRunId, t.employeeId),
+  ],
+);
+
+export const PROJECT_STATUSES = ['active', 'on_hold', 'completed', 'cancelled'] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+export const PROJECT_TASK_STATUSES = ['todo', 'in_progress', 'done', 'blocked'] as const;
+export type ProjectTaskStatus = (typeof PROJECT_TASK_STATUSES)[number];
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: pk(),
+    orgId: orgId(),
+    partyId: uuid('party_id'),
+    name: text('name').notNull(),
+    status: text('status').notNull().default('active').$type<ProjectStatus>(),
+    startDate: date('start_date'),
+    dueDate: date('due_date'),
+    ownerUserId: uuid('owner_user_id'),
+    budgetPaise: paise('budget_paise'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('projects_org_status_idx').on(t.orgId, t.status)],
+);
+
+export const projectTasks = pgTable(
+  'project_tasks',
+  {
+    id: pk(),
+    orgId: orgId(),
+    projectId: uuid('project_id').notNull(),
+    title: text('title').notNull(),
+    status: text('status').notNull().default('todo').$type<ProjectTaskStatus>(),
+    assigneeUserId: uuid('assignee_user_id'),
+    dueDate: date('due_date'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('project_tasks_org_project_idx').on(t.orgId, t.projectId)],
+);
+
 export const TENANT_TABLES = [
   'org_registrations',
   'memberships',
@@ -920,6 +1171,19 @@ export const TENANT_TABLES = [
   'goods_receipt_lines',
   'gstr2b_uploads',
   'document_extractions',
+  // ERP modules (shallow scaffold) — Step J.
+  'pipeline_stages',
+  'deals',
+  'deal_activities',
+  'warehouses',
+  'stock_levels',
+  'stock_movements',
+  'departments',
+  'employees',
+  'payroll_runs',
+  'payslips',
+  'projects',
+  'project_tasks',
 ] as const;
 
 /**
