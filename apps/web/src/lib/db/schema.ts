@@ -434,6 +434,8 @@ export const vouchers = pgTable(
     /** The only column a posted voucher may ever have written to it. */
     reversedByVoucherId: uuid('reversed_by_voucher_id'),
     reversesVoucherId: uuid('reverses_voucher_id'),
+    /** Set on a replacement posted by "Edit", naming the voucher it corrects. */
+    correctsVoucherId: uuid('corrects_voucher_id'),
     sourceDocumentId: uuid('source_document_id'),
     /** The order and receipt a bill relates to, for the three-way match. */
     poId: uuid('po_id'),

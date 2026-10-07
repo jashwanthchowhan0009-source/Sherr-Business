@@ -94,6 +94,23 @@ An accountant maintains the company's data but not who has access to it. A CA re
 
 External access is time-boxed: `memberships.valid_to` is applied by `app_resolve_membership()` at request time, so a lapsed membership is refused on the next request rather than on the next cron run.
 
+## Editing entries
+
+Every entry has an **Edit** link that opens it in the same form that created it, at `/process/edit/<kind>/<id>` (`voucher`, `party`, `item`, `bank`, `po`). Registrations and account names are edited in place on the Data page.
+
+What saving does depends on the record:
+
+| Record | On save |
+|---|---|
+| Party, item, bank account, registration, account name | Updated in place, with a before/after audit row. Vouchers already written keep the details they froze. |
+| Purchase order | Updated in place while it is open and nothing has been received or billed against it. |
+| Draft voucher | Rewritten under **its own number**; links from its source document and extraction follow it. |
+| Posted voucher | **Corrected, never overwritten.** `runCorrection()` in `src/lib/db/corrections.ts` reverses the original and posts the edited version in one transaction. The replacement carries `corrects_voucher_id`; a reason is required and lands in the reversal's narration and the audit row. Receipts that had cleared the original are re-applied to the replacement (same party only, capped at its total), bank lines matched to the original go back to unmatched, and a bill's reverse-charge journal is reversed with it. |
+
+The database still refuses any UPDATE to a posted voucher (0003, invariant 2) — correction is built entirely from reversal plus a new voucher, so the Companies Act audit trail keeps the original, the reversal and the fix. `tests/integration/voucher-edits.test.ts` drives every path through the real server actions against Postgres.
+
+Forms start empty: no example text, and no GST rate, unit, quantity or party kind is assumed. An empty GST rate is refused by the server rather than read as nil.
+
 ## Money
 
 No money columns exist yet. `src/lib/money.ts` fixes the convention now so Phase 2 cannot invent a second one: a branded `Paise` type over `bigint`, Indian lakh/crore formatting, and `paise()` in `src/lib/db/columns.ts` for the eventual columns.

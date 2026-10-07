@@ -12,6 +12,7 @@ import { InvoiceForm } from '../../src/app/(app)/process/InvoiceForm';
  */
 vi.mock('../../src/server/ledger', () => ({
   createSalesInvoice: vi.fn(async () => ({ ok: true, data: {} })),
+  editSalesInvoice: vi.fn(),
   createParty: vi.fn(),
   createItem: vi.fn(),
   createReceipt: vi.fn(),
@@ -75,14 +76,64 @@ describe('InvoiceForm', () => {
     expect(screen.getByText(/unregistered/)).toBeDefined();
   });
 
-  it('says posting is final, where someone about to post can read it', () => {
+  it('says what editing a posted invoice does, where someone about to post can read it', () => {
     render(
       <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
           lockedUpto={null} />,
     );
-    const warning = screen.getByText(/Posting is final/);
-    expect(warning.textContent).toMatch(/cannot be edited or deleted/);
-    expect(warning.textContent).toMatch(/reversal/);
+    const note = screen.getByText(/Posting puts the invoice in the books/);
+    expect(note.textContent).toMatch(/reverses the original/);
+    expect(note.textContent).toMatch(/audit trail/);
+  });
+
+  it('starts empty: no quantity, unit or GST rate is filled in for you', () => {
+    render(
+      <InvoiceForm parties={[customer]} items={[]} supplierStateCode="29" today="2025-06-15"
+          lockedUpto={null} />,
+    );
+    expect((screen.getByLabelText('Quantity on line 1') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('GST rate on line 1') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByLabelText('Reference') as HTMLInputElement).placeholder).toBe('');
+  });
+
+  it('opens filled in when editing a posted invoice and asks for a reason', () => {
+    render(
+      <InvoiceForm
+        parties={[customer]}
+        items={[]}
+        supplierStateCode="29"
+        today="2025-06-15"
+        lockedUpto={null}
+        edit={{ voucherId: 'v1', voucherNo: 'INV/25-26/0007', posted: true }}
+        initial={{
+          partyId: customer.id,
+          voucherDate: '2025-06-01',
+          placeOfSupplyStateCode: '',
+          reference: 'PO-9',
+          narration: '',
+          lines: [
+            {
+              itemId: '',
+              description: 'Consulting',
+              hsnSac: '998311',
+              unit: 'HRS',
+              quantity: '2',
+              unitPriceRupees: '1500.00',
+              gstRateBps: 1800,
+              reverseCharge: false,
+            },
+          ],
+        }}
+      />,
+    );
+    expect((screen.getByLabelText('Description on line 1') as HTMLInputElement).value).toBe('Consulting');
+    // 2 x ₹1,500 at 18% within Karnataka.
+    expect(screen.getByText('₹3,540.00')).toBeDefined();
+    // A posted invoice can only be corrected, never re-saved as a draft.
+    expect(screen.queryByRole('button', { name: /draft/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Post correction' })).toHaveProperty('disabled', true);
+    fireEvent.change(screen.getByLabelText('Reason for the change'), { target: { value: 'Wrong rate' } });
+    expect(screen.getByRole('button', { name: 'Post correction' })).toHaveProperty('disabled', false);
   });
 
   it('offers a draft as well as a post, so the two are distinct acts', () => {
@@ -124,9 +175,10 @@ describe('InvoiceForm', () => {
     const choose = (id: string) =>
       fireEvent.change(screen.getByLabelText('Customer'), { target: { value: id } });
 
-    const fill = (rate: string, qty = '1') => {
+    const fill = (rate: string, qty = '1', gstBps = '1800') => {
       fireEvent.change(screen.getByLabelText('Rate on line 1'), { target: { value: rate } });
       fireEvent.change(screen.getByLabelText('Quantity on line 1'), { target: { value: qty } });
+      fireEvent.change(screen.getByLabelText('GST rate on line 1'), { target: { value: gstBps } });
     };
 
     it('shows nothing until a customer is chosen', () => {
@@ -222,6 +274,7 @@ describe('InvoiceForm', () => {
         />,
       );
       choose(customer.id);
+      fireEvent.change(screen.getByLabelText('GST rate on line 1'), { target: { value: '1800' } });
       // A trailing decimal point does not parse; the preview waits rather than
       // showing an error over a half-typed figure.
       fireEvent.change(screen.getByLabelText('Rate on line 1'), { target: { value: '100.' } });
@@ -275,7 +328,7 @@ describe('InvoiceForm', () => {
           lockedUpto={null} />,
     );
     const select = screen.getByLabelText('GST rate on line 1') as HTMLSelectElement;
-    const offered = [...select.options].map((o) => o.textContent);
+    const offered = [...select.options].filter((o) => o.value !== '').map((o) => o.textContent);
     expect(offered).toEqual(['0%', '0.25%', '3%', '5%', '12%', '18%', '28%', '40%']);
   });
 });

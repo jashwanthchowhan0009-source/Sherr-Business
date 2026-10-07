@@ -46,6 +46,10 @@ export interface EnterPurchaseBillInput {
   grnId?: string | null;
   /** The document this bill was read from, so the voucher traces back to it. */
   sourceDocumentId?: string | null;
+  /** When editing a draft: keep its number instead of taking the next one. */
+  reuseVoucherNo?: string | null;
+  /** When correcting a posted bill: the bill this one replaces. */
+  correctsVoucherId?: string | null;
   userId: string;
 }
 
@@ -110,11 +114,9 @@ export async function enterPurchaseBill(
   const calculation = calculateInvoice(lines, supplyType);
   const entries = purchaseBillEntries(calculation);
 
-  const voucherNo = await allocateVoucherNumber(tx, {
-    voucherType: 'purchase',
-    fyLabel,
-    prefix: 'BILL',
-  });
+  const voucherNo =
+    input.reuseVoucherNo ??
+    (await allocateVoucherNumber(tx, { voucherType: 'purchase', fyLabel, prefix: 'BILL' }));
 
   const created = await createVoucher(tx, {
     voucherType: 'purchase',
@@ -133,6 +135,7 @@ export async function enterPurchaseBill(
     lines,
     entries,
     sourceDocumentId: input.sourceDocumentId ?? null,
+    correctsVoucherId: input.correctsVoucherId ?? null,
   });
 
   if (input.poId || input.grnId) {

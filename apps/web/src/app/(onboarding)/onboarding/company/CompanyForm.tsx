@@ -153,7 +153,6 @@ export function CompanyForm() {
             name="gstin"
             value={gstin}
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
-            placeholder="15 characters"
             maxLength={15}
             autoComplete="off"
             spellCheck={false}
@@ -192,7 +191,6 @@ export function CompanyForm() {
             }}
             inputMode="numeric"
             autoComplete="postal-code"
-            placeholder="6 digits"
             disabled={stateFromGstin !== null}
             style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.04em' }}
           />
@@ -292,10 +290,10 @@ export function CompanyForm() {
 }
 
 function Field({
-  name, label, errors, hint, placeholder, required,
+  name, label, errors, hint, required,
 }: {
   name: string; label: string; errors?: string[];
-  hint?: string; placeholder?: string; required?: boolean;
+  hint?: string; required?: boolean;
 }) {
   return (
     <div className={ui.field}>
@@ -304,7 +302,6 @@ function Field({
         className={ui.input}
         id={name}
         name={name}
-        placeholder={placeholder}
         required={required}
         autoComplete="off"
       />

@@ -47,7 +47,6 @@ export function InviteForm() {
             type="email"
             required
             autoComplete="off"
-            placeholder="name@company.com"
           />
         </div>
 
@@ -76,12 +75,10 @@ export function InviteForm() {
             type="number"
             min={1}
             max={3650}
-            defaultValue={external ? 120 : undefined}
-            placeholder="Leave blank for no expiry"
           />
           <span className={ui.hint}>
             {external
-              ? 'External reviewers should expire. 120 days covers a quarter plus filing.'
+              ? 'External reviewers should expire. 120 days covers a quarter plus filing. Blank means no expiry.'
               : 'Optional. Blank means access continues until it is removed.'}
           </span>
         </div>

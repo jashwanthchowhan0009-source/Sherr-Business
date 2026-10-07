@@ -6,6 +6,8 @@ import { getAccounts, getDataCounts, getDocuments } from '@/server/ledger-querie
 import { STANDARD_ACCOUNT_CODES } from '@/lib/accounting/chart-of-accounts';
 import { withContext } from '../_guard';
 import { CompanyForm } from './CompanyForm';
+import { RegistrationsEditor } from './RegistrationsEditor';
+import { AccountRow } from './AccountRow';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,10 +30,6 @@ const dateTimeFmt = new Intl.DateTimeFormat('en-IN', {
   timeStyle: 'short',
   timeZone: 'Asia/Kolkata',
 });
-
-const KIND_LABELS: Record<string, string> = {
-  gstin: 'GSTIN', tan: 'TAN', iec: 'IEC', msme: 'MSME', cin: 'CIN',
-};
 
 export default async function DataPage() {
   return withContext(async (ctx) => {
@@ -69,26 +67,22 @@ export default async function DataPage() {
           <Panel
             title="Registrations"
             note={`${registrations.length} on file`}
-            bodyless={registrations.length > 0}
           >
             {registrations.length === 0 ? (
-              <EmptyState title="No registrations recorded">
+              <p className={ui.hint} style={{ marginBottom: 14 }}>
                 Add your GSTIN and TAN so taxation workings can be prepared against the right
                 registration. Multi-state companies record one GSTIN per state.
-              </EmptyState>
-            ) : (
-              <Table head={<tr><th>Type</th><th>Number</th><th>State</th></tr>}>
-                {registrations.map((r) => (
-                  <tr key={r.id}>
-                    <td>{KIND_LABELS[r.kind] ?? r.kind}</td>
-                    <td className="tnum" style={{ fontFamily: 'ui-monospace, monospace' }}>
-                      {r.number}
-                    </td>
-                    <td className="tnum">{r.stateCode ?? '—'}</td>
-                  </tr>
-                ))}
-              </Table>
-            )}
+              </p>
+            ) : null}
+            <RegistrationsEditor
+              readOnly={!can(ctx.role, 'registration:write')}
+              rows={registrations.map((r) => ({
+                id: r.id,
+                kind: r.kind,
+                number: r.number,
+                stateCode: r.stateCode,
+              }))}
+            />
           </Panel>
         </div>
 
@@ -178,19 +172,14 @@ export default async function DataPage() {
                 it.
               </EmptyState>
             ) : (
-              <Table head={<tr><th>Code</th><th>Account</th><th>Nature</th><th>Origin</th></tr>}>
+              <Table head={<tr><th>Code</th><th>Account</th><th>Nature</th><th>Origin</th><th /></tr>}>
                 {accounts.map((a) => (
-                  <tr key={a.id}>
-                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }}>
-                      {a.code}
-                    </td>
-                    <td>
-                      {a.name}
-                      {a.note ? <div className={ui.hint}>{a.note}</div> : null}
-                    </td>
-                    <td>{a.nature}</td>
-                    <td className={ui.hint}>{originOf(a)}</td>
-                  </tr>
+                  <AccountRow
+                    key={a.id}
+                    account={{ id: a.id, code: a.code, name: a.name, note: a.note, nature: a.nature }}
+                    origin={originOf(a)}
+                    editable={can(ctx.role, 'company:update')}
+                  />
                 ))}
               </Table>
             )}

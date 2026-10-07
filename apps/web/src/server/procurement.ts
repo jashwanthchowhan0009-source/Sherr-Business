@@ -1,6 +1,6 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/lib/auth/action';
@@ -42,16 +42,36 @@ async function fyFor(
  * is posted and no number series for vouchers is consumed. It exists so a bill can
  * later be checked against what was actually agreed.
  */
+const poSchema = z.object({
+  partyId: z.string().uuid('Choose a supplier'),
+  poDate: isoDate,
+  expectedDate: isoDate.optional().or(z.literal('')),
+  narration: optional(z.string().trim().max(500)),
+  lines: z.array(lineSchema).min(1, 'An order needs at least one line'),
+});
+
+/** Parses order lines into integers, refusing a line with no quantity. */
+function orderLines(input: z.infer<typeof poSchema>['lines']) {
+  const lines = input.map((line, index) => ({
+    lineNo: index + 1,
+    itemId: line.itemId || null,
+    description: line.description,
+    quantity: parseQuantity(line.quantity),
+    unit: line.unit || null,
+    unitPricePaise: parseRupees(line.unitPriceRupees || '0'),
+    gstRateBps: line.gstRateBps,
+  }));
+  if (lines.some((l) => l.quantity <= 0n)) {
+    throw invalidInput('Every line needs a quantity greater than zero.');
+  }
+  const totalPaise = lines.reduce((acc, l) => acc + (l.quantity * l.unitPricePaise) / 10_000n, 0n);
+  return { lines, totalPaise };
+}
+
 const createPurchaseOrderAction = defineAction({
   name: 'procurement.po.created',
   capability: 'procurement:write',
-  input: z.object({
-    partyId: z.string().uuid('Choose a supplier'),
-    poDate: isoDate,
-    expectedDate: isoDate.optional().or(z.literal('')),
-    narration: optional(z.string().trim().max(500)),
-    lines: z.array(lineSchema).min(1, 'An order needs at least one line'),
-  }),
+  input: poSchema,
   handler: async ({ tx, orgId, input, audit }) => {
     const [party] = await tx.select().from(parties).where(eq(parties.id, input.partyId));
     if (!party) throw notFound('That supplier does not exist in this company.');
@@ -66,24 +86,7 @@ const createPurchaseOrderAction = defineAction({
     `);
     const poNo = `PO/${fyLabel}/${String(seqRows[0]?.next ?? 1).padStart(4, '0')}`;
 
-    const lines = input.lines.map((line, index) => ({
-      lineNo: index + 1,
-      itemId: line.itemId || null,
-      description: line.description,
-      quantity: parseQuantity(line.quantity),
-      unit: line.unit || null,
-      unitPricePaise: parseRupees(line.unitPriceRupees || '0'),
-      gstRateBps: line.gstRateBps,
-    }));
-
-    if (lines.some((l) => l.quantity <= 0n)) {
-      throw invalidInput('Every line needs a quantity greater than zero.');
-    }
-
-    const totalPaise = lines.reduce(
-      (acc, l) => acc + (l.quantity * l.unitPricePaise) / 10_000n,
-      0n,
-    );
+    const { lines, totalPaise } = orderLines(input.lines);
 
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into purchase_orders (org_id, po_no, fy_label, po_date, party_id, expected_date,
@@ -216,6 +219,80 @@ const createGoodsReceiptAction = defineAction({
 });
 
 
+/**
+ * Editing a purchase order.
+ *
+ * Only while nothing has been measured against it. Once goods have been
+ * received or a bill linked, the order is evidence in a three-way match, and
+ * changing it afterwards would let a bill be made to agree with an order that
+ * was rewritten to fit.
+ */
+const updatePurchaseOrderAction = defineAction({
+  name: 'procurement.po.updated',
+  capability: 'procurement:write',
+  input: poSchema.extend({ id: z.string().uuid() }),
+  handler: async ({ tx, orgId, input, audit }) => {
+    const [before] = await tx
+      .select()
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.orgId, orgId)));
+    if (!before) throw notFound('Purchase order');
+    if (before.status !== 'open') {
+      throw conflict(`${before.poNo} is ${before.status.replace('_', ' ')} and can no longer be edited.`);
+    }
+
+    const { rows: used } = await tx.execute<{ n: string }>(sql`
+      select ((select count(*) from goods_receipts where po_id = ${input.id}::uuid)
+            + (select count(*) from vouchers where po_id = ${input.id}::uuid))::text as n
+    `);
+    if (Number(used[0]?.n ?? 0) > 0) {
+      throw conflict(
+        `Goods or a bill have already been recorded against ${before.poNo}, so it can no longer be edited.`,
+      );
+    }
+
+    const [party] = await tx.select().from(parties).where(eq(parties.id, input.partyId));
+    if (!party) throw notFound('Supplier');
+
+    const { lines, totalPaise } = orderLines(input.lines);
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        partyId: party.id,
+        poDate: input.poDate,
+        expectedDate: input.expectedDate || null,
+        narration: input.narration || null,
+        totalPaise,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, input.id));
+
+    await tx.execute(sql`delete from purchase_order_lines where po_id = ${input.id}::uuid`);
+    for (const line of lines) {
+      await tx.execute(sql`
+        insert into purchase_order_lines (org_id, po_id, line_no, item_id, description,
+                                          quantity, unit, unit_price_paise, gst_rate_bps)
+        values (app_current_org_id(), ${input.id}::uuid, ${line.lineNo}, ${line.itemId}::uuid,
+                ${line.description}, ${line.quantity}, ${line.unit},
+                ${line.unitPricePaise}, ${line.gstRateBps})
+      `);
+    }
+
+    await audit({
+      action: 'procurement.po.updated',
+      subjectKind: 'purchase_order',
+      subjectId: input.id,
+      before: { supplierId: before.partyId, poDate: before.poDate, totalPaise: before.totalPaise.toString() },
+      after: { supplier: party.name, poDate: input.poDate, totalPaise: totalPaise.toString(), lines: lines.length },
+    });
+
+    revalidatePath('/process');
+    return { id: input.id, poNo: before.poNo };
+  },
+});
+
+
 // ─── exported entry points ──────────────────────────────────────────────────
 // A 'use server' module may only export async functions, so each action is
 // exposed through a thin wrapper. The body must do nothing but delegate:
@@ -227,4 +304,8 @@ export async function createPurchaseOrder(input: unknown) {
 
 export async function createGoodsReceipt(input: unknown) {
   return createGoodsReceiptAction(input);
+}
+
+export async function updatePurchaseOrder(input: unknown) {
+  return updatePurchaseOrderAction(input);
 }

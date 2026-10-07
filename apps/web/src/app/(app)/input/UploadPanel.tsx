@@ -21,7 +21,7 @@ const MAX_MB = 10;
  * at a 10 MB ceiling is an acceptable price for not having a second,
  * separately-guarded write path into the system.
  */
-export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inboxEmail: string }) {
+export function UploadPanel({ readOnly }: { readOnly: boolean }) {
   const [declaredType, setDeclaredType] = useState<DeclaredDocumentType | null>(null);
   const [declaredLabel, setDeclaredLabel] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -117,12 +117,6 @@ export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inbox
               <div className={ui.targetHint}>
                 PDF, image, CSV or Excel · up to {MAX_MB} MB each
               </div>
-              {/* The design shows a forwarding address here. It is shown, but
-                  stated as not yet live: the panel must not imply that mail
-                  sent to it would arrive. */}
-              <div className={ui.targetHint} style={{ color: 'var(--sb-text-3)' }}>
-                Forwarding bills to <b>{inboxEmail}</b> arrives with the AI document inbox
-              </div>
             </div>
           </div>
         </label>
@@ -130,13 +124,15 @@ export function UploadPanel({ readOnly, inboxEmail }: { readOnly: boolean; inbox
         {/* Typed first, chips second. The chips cover the common papers; this is
             for the one that is none of them, and a word the person chose
             themselves will still mean something to them months later. */}
+        <label className={ui.label} htmlFor="declared-label">
+          What is this document?
+        </label>
         <input
           className={ui.typeField}
+          id="declared-label"
           type="text"
           value={declaredLabel}
           maxLength={60}
-          placeholder="Enter your input type…"
-          aria-label="Input type, in your own words"
           onChange={(e) => setDeclaredLabel(e.target.value)}
         />
 

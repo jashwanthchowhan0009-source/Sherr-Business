@@ -112,13 +112,13 @@ describe('VerifyRuleForm', () => {
     render(<VerifyRuleForm {...OWN} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign off' }));
     expect((screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByPlaceholderText('Name and membership number')).toBeDefined();
+    expect(screen.getByLabelText(/name and membership number/i)).toBeDefined();
   });
 
   it('enables confirmation once a name is given', () => {
     render(<VerifyRuleForm {...OWN} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign off' }));
-    const field = screen.getByPlaceholderText('Name and membership number');
+    const field = screen.getByLabelText(/name and membership number/i);
 
     fireEvent.change(field, { target: { value: 'ab' } });
     expect((screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement).disabled).toBe(true);
@@ -130,7 +130,7 @@ describe('VerifyRuleForm', () => {
   it('sends the rule and the name, so the record has an owner', async () => {
     render(<VerifyRuleForm {...OWN} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign off' }));
-    fireEvent.change(screen.getByPlaceholderText('Name and membership number'), {
+    fireEvent.change(screen.getByLabelText(/name and membership number/i), {
       target: { value: 'R. Iyer, FCA 201234' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -151,7 +151,7 @@ describe('VerifyRuleForm', () => {
 
     render(<VerifyRuleForm {...OWN} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign off' }));
-    fireEvent.change(screen.getByPlaceholderText('Name and membership number'), {
+    fireEvent.change(screen.getByLabelText(/name and membership number/i), {
       target: { value: 'R. Iyer, FCA 201234' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -159,7 +159,7 @@ describe('VerifyRuleForm', () => {
     expect(await screen.findByText(/does not belong to this company/)).toBeDefined();
     // Still open, with the typed name intact — nothing to re-enter.
     expect(
-      (screen.getByPlaceholderText('Name and membership number') as HTMLInputElement).value,
+      (screen.getByLabelText(/name and membership number/i) as HTMLInputElement).value,
     ).toBe('R. Iyer, FCA 201234');
   });
 
@@ -167,7 +167,7 @@ describe('VerifyRuleForm', () => {
     render(<VerifyRuleForm {...OWN} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign off' }));
     expect(
-      screen.getByLabelText('Who is signing off Contractor — other than individual'),
+      screen.getByLabelText(/^Who is signing off Contractor — other than individual/),
     ).toBeDefined();
   });
 });

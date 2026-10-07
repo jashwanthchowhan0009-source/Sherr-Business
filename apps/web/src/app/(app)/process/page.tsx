@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Band, EmptyState, Panel, Table, ui } from '@/components/ui';
 import { can } from '@/lib/auth/permissions';
@@ -6,6 +7,7 @@ import { getCompany } from '@/server/queries';
 import { getAccounts, getItems, getParties, getPeriodLock, getVouchers } from '@/server/ledger-queries';
 import { getBankAccounts, getReviewQueue } from '@/server/banking-queries';
 import { getOpenPurchaseOrders } from '@/server/procurement-queries';
+import { getArchivedItems, getArchivedParties, getPurchaseOrders } from '@/server/edit-queries';
 import { withContext } from '../_guard';
 import { InvoiceForm } from './InvoiceForm';
 import { PurchaseBillForm } from './PurchaseBillForm';
@@ -38,9 +40,12 @@ export default async function ProcessPage() {
       getPeriodLock(ctx),
     ]);
 
-    const [banks, openOrders] = await Promise.all([
+    const [banks, openOrders, orders, archivedParties, archivedItems] = await Promise.all([
       getBankAccounts(ctx),
       getOpenPurchaseOrders(ctx),
+      getPurchaseOrders(ctx, 25),
+      getArchivedParties(ctx),
+      getArchivedItems(ctx),
     ]);
     const bankQueue = banks[0]
       ? await getReviewQueue(ctx, { bankAccountId: banks[0].id, limit: 50 })
@@ -154,6 +159,38 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
+        {orders.length > 0 ? (
+          <Panel bodyless>
+            <Table
+              head={
+                <tr>
+                  <th>Order</th>
+                  <th>Date</th>
+                  <th>Supplier</th>
+                  <th className={ui.right}>Total</th>
+                  <th>State</th>
+                  <th />
+                </tr>
+              }
+            >
+              {orders.map((o) => (
+                <tr key={o.id}>
+                  <td>{o.poNo}</td>
+                  <td className="tnum">{o.poDate}</td>
+                  <td>{o.partyName ?? '—'}</td>
+                  <td className={`${ui.right} tnum`}>{formatRupees(paise(o.totalPaise))}</td>
+                  <td className={ui.hint}>{o.status.replace('_', ' ')}</td>
+                  <td>
+                    {can(ctx.role, 'procurement:write') && o.status === 'open' ? (
+                      <Link href={`/process/edit/po/${o.id}`}>Edit</Link>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </Panel>
+        ) : null}
+
         <Band>What arrived</Band>
         <Panel>
           {can(ctx.role, 'procurement:write') ? (
@@ -240,8 +277,21 @@ export default async function ProcessPage() {
             }))}
             readOnly={!can(ctx.role, 'bank:reconcile')}
           />
+          {banks.length > 0 && can(ctx.role, 'bank:import') ? (
+            <p className={ui.hint} style={{ marginTop: 14 }}>
+              Accounts:{' '}
+              {banks.map((b, index) => (
+                <span key={b.id}>
+                  {index > 0 ? ' · ' : ''}
+                  {b.bankName} — {b.accountLabel}{' '}
+                  <Link href={`/process/edit/bank/${b.id}`}>Edit</Link>
+                </span>
+              ))}
+            </p>
+          ) : null}
         </Panel>
 
+        <div id="vouchers" />
         <Band>{vouchers.length === 0 ? 'Vouchers' : `Vouchers — ${vouchers.length} most recent`}</Band>
         <Panel bodyless={vouchers.length > 0}>
           {vouchers.length === 0 ? (
@@ -284,16 +334,26 @@ export default async function ProcessPage() {
                   <td>
                     {v.reversedByVoucherId
                       ? 'Reversed'
-                      : v.status === 'posted'
-                        ? 'Posted'
-                        : 'Draft'}
+                      : v.reversesVoucherId
+                        ? 'Reversal'
+                        : v.status === 'posted'
+                          ? 'Posted'
+                          : 'Draft'}
+                    {v.correctsVoucherId ? <div className={ui.hint}>Corrected entry</div> : null}
                   </td>
                   <td>
-                    {/* A posted voucher cannot be edited, so the only
-                        correction offered is a reversal. One already reversed
-                        offers nothing: a second would double the correction. */}
-                    {mayPost && v.status === 'posted' && !v.reversedByVoucherId ? (
-                      <ReverseButton voucherId={v.id} voucherNo={v.voucherNo} today={today} />
+                    {/* Edit opens the entry in its own form. For a posted
+                        voucher saving posts a correction (reversal plus
+                        replacement) rather than overwriting it. Reverse is for
+                        an entry that should not exist at all. A reversed entry,
+                        or a reversal itself, offers neither. */}
+                    {editable(v) ? (
+                      <div className={ui.actions} style={{ marginTop: 0 }}>
+                        <Link href={`/process/edit/voucher/${v.id}`}>Edit</Link>
+                        {mayPost && v.status === 'posted' ? (
+                          <ReverseButton voucherId={v.id} voucherNo={v.voucherNo} today={today} />
+                        ) : null}
+                      </div>
                     ) : null}
                   </td>
                 </tr>
@@ -309,7 +369,7 @@ export default async function ProcessPage() {
             <div className={ui.tableWrap} style={{ marginTop: 20 }}>
               <table className={ui.table}>
                 <thead>
-                  <tr><th>Name</th><th>Kind</th><th>GSTIN</th><th>State</th><th>Credit</th></tr>
+                  <tr><th>Name</th><th>Kind</th><th>GSTIN</th><th>State</th><th>Credit</th><th /></tr>
                 </thead>
                 <tbody>
                   {parties.map((p) => (
@@ -321,6 +381,11 @@ export default async function ProcessPage() {
                       </td>
                       <td className="tnum">{p.stateCode ?? '—'}</td>
                       <td className="tnum">{p.creditDays === 0 ? 'On receipt' : `${p.creditDays} days`}</td>
+                      <td>
+                        {can(ctx.role, 'party:write') ? (
+                          <Link href={`/process/edit/party/${p.id}`}>Edit</Link>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -329,6 +394,22 @@ export default async function ProcessPage() {
           ) : null}
         </Panel>
 
+        {archivedParties.length > 0 ? (
+          <p className={ui.hint} style={{ marginTop: 10 }}>
+            Archived:{' '}
+            {archivedParties.map((p, index) => (
+              <span key={p.id}>
+                {index > 0 ? ', ' : ''}
+                {can(ctx.role, 'party:write') ? (
+                  <Link href={`/process/edit/party/${p.id}`}>{p.name}</Link>
+                ) : (
+                  p.name
+                )}
+              </span>
+            ))}
+          </p>
+        ) : null}
+
         <Band>Items</Band>
         <Panel bodyless={false}>
           {can(ctx.role, 'item:write') ? <ItemForm /> : null}
@@ -336,7 +417,7 @@ export default async function ProcessPage() {
             <div className={ui.tableWrap} style={{ marginTop: 20 }}>
               <table className={ui.table}>
                 <thead>
-                  <tr><th>Name</th><th>HSN/SAC</th><th>Unit</th><th>GST</th><th className={ui.right}>Price</th></tr>
+                  <tr><th>Name</th><th>HSN/SAC</th><th>Unit</th><th>GST</th><th className={ui.right}>Price</th><th /></tr>
                 </thead>
                 <tbody>
                   {items.map((i) => (
@@ -350,6 +431,11 @@ export default async function ProcessPage() {
                       <td className={`${ui.right} tnum`}>
                         {i.salePricePaise === null ? '—' : formatRupees(paise(i.salePricePaise))}
                       </td>
+                      <td>
+                        {can(ctx.role, 'item:write') ? (
+                          <Link href={`/process/edit/item/${i.id}`}>Edit</Link>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -358,6 +444,22 @@ export default async function ProcessPage() {
           ) : null}
         </Panel>
 
+        {archivedItems.length > 0 ? (
+          <p className={ui.hint} style={{ marginTop: 10 }}>
+            Not in use:{' '}
+            {archivedItems.map((i, index) => (
+              <span key={i.id}>
+                {index > 0 ? ', ' : ''}
+                {can(ctx.role, 'item:write') ? (
+                  <Link href={`/process/edit/item/${i.id}`}>{i.name}</Link>
+                ) : (
+                  i.name
+                )}
+              </span>
+            ))}
+          </p>
+        ) : null}
+
         <p className={ui.hint} style={{ marginTop: 20 }}>
           Prepared by SherrByte — review by a qualified professional. Every GST rate here is
           marked as needing CA verification until one signs it off.
@@ -365,4 +467,21 @@ export default async function ProcessPage() {
       </>
     );
   });
+}
+
+/**
+ * Whether a voucher offers Edit.
+ *
+ * A reversal exists only to cancel another entry, a reversed entry has already
+ * been replaced, and a reverse-charge journal follows its bill. None of those
+ * is edited directly; the server refuses them too.
+ */
+function editable(v: {
+  voucherType: string;
+  voucherNo: string;
+  reversedByVoucherId: string | null;
+  reversesVoucherId: string | null;
+}): boolean {
+  if (v.reversedByVoucherId || v.reversesVoucherId) return false;
+  return !(v.voucherType === 'journal' && v.voucherNo.startsWith('RCM'));
 }
