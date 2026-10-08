@@ -352,9 +352,9 @@
 
 /* The free-text input type on the upload panel. */
 .typeField {
-  width: 100%; max-width: 420px; margin: 0 auto 12px; display: block;
+  width: 100%; max-width: 420px; margin: 22px auto 12px; display: block;
   padding: 10px 14px; border-radius: 999px;
-  background: var(--sb-surface); color: var(--sb-text);
+  background: var(--sb-surface); color: var(--sb-on-surface);
   border: 1px solid var(--sb-hairline); font-size: 13.5px; text-align: center;
 }
 .typeField::placeholder { color: var(--sb-text-3); }
