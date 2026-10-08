@@ -5,16 +5,18 @@ import { ui } from '@/components/ui';
 import { determineSupplyType } from '@/lib/accounting/gst';
 import { formatRupees, paise } from '@/lib/money';
 import { STATE_CODES } from '@/lib/india/gstin';
-import { createSalesInvoice } from '@/server/ledger';
+import { createSalesInvoice, editSalesInvoice } from '@/server/ledger';
 import {
   GstWorking,
   TaxLinesEditor,
   emptyTaxLine,
+  linesComplete,
   usableLines,
   useGstPreview,
   type ItemOption,
   type TaxLine,
 } from './_shared/TaxLines';
+import { ReasonField, editedMessage, reasonReady, returnToProcess, type EditTarget } from './_shared/edit';
 
 export interface PartyOption {
   id: string;
@@ -24,8 +26,17 @@ export interface PartyOption {
   placeOfSupplyStateCode: string | null;
 }
 
+export interface InvoiceInitial {
+  partyId: string;
+  voucherDate: string;
+  placeOfSupplyStateCode: string;
+  reference: string;
+  narration: string;
+  lines: TaxLine[];
+}
+
 /**
- * Raising a sales invoice.
+ * Raising a sales invoice, or editing one.
  *
  * The working shown comes from the same engine the server runs. The browser's
  * figures are never sent: only quantities, prices and rates go, and the server
@@ -38,19 +49,25 @@ export function InvoiceForm({
   supplierStateCode,
   today,
   lockedUpto,
+  initial,
+  edit,
 }: {
   parties: PartyOption[];
   items: ItemOption[];
   supplierStateCode: string | null;
   today: string;
   lockedUpto: string | null;
+  initial?: InvoiceInitial;
+  edit?: EditTarget;
 }) {
   const [pending, start] = useTransition();
-  const [partyId, setPartyId] = useState('');
-  const [voucherDate, setVoucherDate] = useState(today);
-  const [placeOfSupply, setPlaceOfSupply] = useState('');
-  const [reference, setReference] = useState('');
-  const [lines, setLines] = useState<TaxLine[]>([emptyTaxLine()]);
+  const [partyId, setPartyId] = useState(initial?.partyId ?? '');
+  const [voucherDate, setVoucherDate] = useState(initial?.voucherDate ?? today);
+  const [placeOfSupply, setPlaceOfSupply] = useState(initial?.placeOfSupplyStateCode ?? '');
+  const [reference, setReference] = useState(initial?.reference ?? '');
+  const [narration, setNarration] = useState(initial?.narration ?? '');
+  const [lines, setLines] = useState<TaxLine[]>(initial?.lines ?? [emptyTaxLine()]);
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<
     { tone: 'ok' | 'err'; text: string; href?: string } | null
   >(null);
@@ -71,19 +88,33 @@ export function InvoiceForm({
         })
       : null;
   const preview = useGstPreview(lines, supplyType);
+  const ready = Boolean(partyId) && linesComplete(lines) && reasonReady(edit, reason);
 
   function submit(post: boolean) {
     setMessage(null);
     start(async () => {
-      const result = await createSalesInvoice({
+      const data = {
         partyId,
         voucherDate,
         placeOfSupplyStateCode: placeOfSupply,
         reference,
+        narration,
         post,
         lines: usableLines(lines),
-      });
+      };
 
+      if (edit) {
+        const result = await editSalesInvoice({ id: edit.voucherId, reason, data });
+        if (result.ok) {
+          setMessage({ tone: 'ok', text: editedMessage(result.data) });
+          returnToProcess();
+        } else {
+          setMessage({ tone: 'err', text: result.error });
+        }
+        return;
+      }
+
+      const result = await createSalesInvoice(data);
       if (result.ok) {
         setMessage({
           tone: 'ok',
@@ -94,6 +125,7 @@ export function InvoiceForm({
         });
         setLines([emptyTaxLine()]);
         setReference('');
+        setNarration('');
       } else {
         setMessage({ tone: 'err', text: result.error });
       }
@@ -180,9 +212,21 @@ export function InvoiceForm({
             value={reference}
             onChange={(e) => setReference(e.target.value)}
             maxLength={100}
-            placeholder="Their PO number"
           />
         </div>
+
+        <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
+          <label className={ui.label} htmlFor="inv-narration">Narration</label>
+          <input
+            className={ui.input}
+            id="inv-narration"
+            value={narration}
+            onChange={(e) => setNarration(e.target.value)}
+            maxLength={500}
+          />
+        </div>
+
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
 
       <TaxLinesEditor lines={lines} items={items} onChange={setLines} />
@@ -197,17 +241,25 @@ export function InvoiceForm({
       ) : null}
 
       <div className={ui.actions} style={{ marginTop: 16 }}>
-        <button className={ui.button} type="submit" disabled={pending || !partyId}>
-          {pending ? 'Posting…' : 'Post invoice'}
+        <button className={ui.button} type="submit" disabled={pending || !ready}>
+          {pending
+            ? 'Saving…'
+            : edit?.posted
+              ? 'Post correction'
+              : edit
+                ? 'Save and post'
+                : 'Post invoice'}
         </button>
-        <button
-          className={ui.buttonGhost}
-          type="button"
-          disabled={pending || !partyId}
-          onClick={() => submit(false)}
-        >
-          Save as draft
-        </button>
+        {edit?.posted ? null : (
+          <button
+            className={ui.buttonGhost}
+            type="button"
+            disabled={pending || !ready}
+            onClick={() => submit(false)}
+          >
+            {edit ? 'Save draft' : 'Save as draft'}
+          </button>
+        )}
         {message ? (
           <span className={message.tone === 'ok' ? ui.statusOk : ui.statusErr} aria-live="polite">
             {message.text}
@@ -222,8 +274,9 @@ export function InvoiceForm({
       </div>
 
       <p className={ui.hint} style={{ marginTop: 12 }}>
-        Posting is final. A posted invoice cannot be edited or deleted — a correction is a
-        reversal plus a fresh invoice, so both stay visible in the audit trail.
+        Posting puts the invoice in the books. It can still be edited afterwards: the edit
+        reverses the original and posts the corrected invoice, so both stay visible in the audit
+        trail.
       </p>
     </form>
   );

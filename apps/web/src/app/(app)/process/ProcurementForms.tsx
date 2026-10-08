@@ -2,13 +2,13 @@
 
 import { useState, useTransition } from 'react';
 import { ui } from '@/components/ui';
-import { createGoodsReceipt, createPurchaseOrder } from '@/server/procurement';
+import { createGoodsReceipt, createPurchaseOrder, updatePurchaseOrder } from '@/server/procurement';
 
 interface Named { id: string; name: string }
 interface ItemNamed { id: string; name: string; unit: string }
 interface PoOption { id: string; poNo: string; partyId: string }
 
-interface Line {
+export interface Line {
   itemId: string;
   description: string;
   quantity: string;
@@ -20,7 +20,7 @@ const emptyLine = (): Line => ({
   itemId: '',
   description: '',
   quantity: '',
-  unit: 'NOS',
+  unit: '',
   unitPriceRupees: '',
 });
 
@@ -159,17 +159,29 @@ function LineEditor({
   );
 }
 
+export interface PurchaseOrderInitial {
+  id: string;
+  poNo: string;
+  partyId: string;
+  poDate: string;
+  expectedDate: string;
+  narration: string;
+  lines: Line[];
+}
+
 export function PurchaseOrderForm({
   suppliers,
   items,
   today,
+  initial,
 }: {
   suppliers: Named[];
   items: ItemNamed[];
   today: string;
+  initial?: PurchaseOrderInitial;
 }) {
   const [pending, start] = useTransition();
-  const [lines, setLines] = useState<Line[]>([emptyLine()]);
+  const [lines, setLines] = useState<Line[]>(initial?.lines.length ? initial.lines : [emptyLine()]);
   const [message, setMessage] = useState<Message>(null);
 
   if (suppliers.length === 0) {
@@ -181,7 +193,7 @@ export function PurchaseOrderForm({
       action={(formData: FormData) => {
         setMessage(null);
         start(async () => {
-          const result = await createPurchaseOrder({
+          const fields = {
             partyId: String(formData.get('partyId') ?? ''),
             poDate: String(formData.get('poDate') ?? today),
             expectedDate: String(formData.get('expectedDate') ?? ''),
@@ -190,15 +202,21 @@ export function PurchaseOrderForm({
               .filter((l) => l.quantity.trim() !== '')
               .map((l) => ({
                 ...(l.itemId ? { itemId: l.itemId } : {}),
-                description: l.description || 'Item',
+                description: l.description,
                 quantity: l.quantity,
                 unit: l.unit,
                 unitPriceRupees: l.unitPriceRupees || '0',
               })),
-          });
+          };
+          const result = initial
+            ? await updatePurchaseOrder({ id: initial.id, ...fields })
+            : await createPurchaseOrder(fields);
           if (result.ok) {
-            setMessage({ tone: 'ok', text: `${result.data.poNo} raised.` });
-            setLines([emptyLine()]);
+            setMessage({
+              tone: 'ok',
+              text: `${result.data.poNo} ${initial ? 'saved' : 'raised'}.`,
+            });
+            if (!initial) setLines([emptyLine()]);
           } else {
             setMessage({ tone: 'err', text: result.error });
           }
@@ -208,22 +226,22 @@ export function PurchaseOrderForm({
       <div className={ui.formGrid}>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="po-party">Supplier</label>
-          <select className={ui.input} id="po-party" name="partyId" required defaultValue="">
+          <select className={ui.input} id="po-party" name="partyId" required defaultValue={initial?.partyId ?? ''}>
             <option value="">Choose a supplier</option>
             {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="po-date">Order date</label>
-          <input className={ui.input} id="po-date" name="poDate" type="date" defaultValue={today} required />
+          <input className={ui.input} id="po-date" name="poDate" type="date" defaultValue={initial?.poDate ?? today} required />
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="po-expected">Expected by</label>
-          <input className={ui.input} id="po-expected" name="expectedDate" type="date" />
+          <input className={ui.input} id="po-expected" name="expectedDate" type="date" defaultValue={initial?.expectedDate ?? ''} />
         </div>
         <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
           <label className={ui.label} htmlFor="po-narration">Note</label>
-          <input className={ui.input} id="po-narration" name="narration" maxLength={500} />
+          <input className={ui.input} id="po-narration" name="narration" maxLength={500} defaultValue={initial?.narration ?? ''} />
         </div>
       </div>
 
@@ -231,7 +249,7 @@ export function PurchaseOrderForm({
 
       <div className={ui.actions} style={{ marginTop: 12 }}>
         <button className={ui.button} type="submit" disabled={pending}>
-          {pending ? 'Raising…' : 'Raise order'}
+          {pending ? 'Saving…' : initial ? 'Save changes' : 'Raise order'}
         </button>
         <Status message={message} />
       </div>
@@ -283,7 +301,7 @@ export function GoodsReceiptForm({
               .filter((l) => l.quantity.trim() !== '')
               .map((l) => ({
                 ...(l.itemId ? { itemId: l.itemId } : {}),
-                description: l.description || 'Item',
+                description: l.description,
                 quantity: l.quantity,
                 unit: l.unit,
               })),

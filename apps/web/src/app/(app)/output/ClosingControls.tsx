@@ -84,7 +84,7 @@ export function ClosingStockForm({
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="cs-value">Value (₹)</label>
-          <input className={ui.input} id="cs-value" name="valueRupees" inputMode="decimal" required placeholder="0.00" />
+          <input className={ui.input} id="cs-value" name="valueRupees" inputMode="decimal" required />
         </div>
         <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
           <label className={ui.label} htmlFor="cs-basis">How it was valued</label>
@@ -94,7 +94,6 @@ export function ClosingStockForm({
             name="basis"
             required
             maxLength={300}
-            placeholder="e.g. at cost, FIFO, per the physical count of 31 March"
             aria-describedby="cs-basis-hint"
           />
           <p className={ui.hint} id="cs-basis-hint">
@@ -199,7 +198,6 @@ export function PeriodLockForm({
                 name="reason"
                 required
                 maxLength={300}
-                placeholder="e.g. Q2 GST returns filed, figures reported to the bank"
               />
             </div>
           </div>
@@ -250,7 +248,6 @@ export function PeriodLockForm({
                   required
                   minLength={10}
                   maxLength={500}
-                  placeholder="Reopening changes figures that have been reported. Explain fully."
                 />
               </div>
               <div className={ui.actions}>

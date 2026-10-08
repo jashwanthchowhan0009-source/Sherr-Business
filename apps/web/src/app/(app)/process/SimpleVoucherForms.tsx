@@ -4,8 +4,18 @@ import { useState, useTransition } from 'react';
 import { ui } from '@/components/ui';
 import { parseRupees } from '@/lib/accounting/units';
 import { formatRupees, paise } from '@/lib/money';
-import { createPayment, createJournal, createContra, reverseVoucher } from '@/server/purchases';
+import {
+  createPayment,
+  createJournal,
+  createContra,
+  editContra,
+  editJournal,
+  editPayment,
+  reverseVoucher,
+} from '@/server/purchases';
 import { nextDay } from './InvoiceForm';
+import type { MoneyInitial } from './ReceiptForm';
+import { ReasonField, editedMessage, reasonReady, returnToProcess, type EditTarget } from './_shared/edit';
 
 interface Named { id: string; name: string }
 interface AccountOption { code: string; name: string }
@@ -38,12 +48,17 @@ export function PaymentForm({
   parties,
   today,
   lockedUpto,
+  initial,
+  edit,
 }: {
   parties: Named[];
   today: string;
   lockedUpto: string | null;
+  initial?: MoneyInitial;
+  edit?: EditTarget;
 }) {
   const [pending, start] = useTransition();
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<Message>(null);
 
   if (parties.length === 0) {
@@ -55,13 +70,25 @@ export function PaymentForm({
       action={(formData: FormData) => {
         setMessage(null);
         start(async () => {
-          const result = await createPayment({
+          const data = {
             partyId: String(formData.get('partyId') ?? ''),
             voucherDate: String(formData.get('voucherDate') ?? today),
             amountRupees: String(formData.get('amountRupees') ?? ''),
-            fromAccountCode: String(formData.get('fromAccountCode') ?? 'BANK'),
+            fromAccountCode: String(formData.get('fromAccountCode') ?? ''),
             reference: String(formData.get('reference') ?? ''),
-          });
+            narration: String(formData.get('narration') ?? ''),
+          };
+          if (edit) {
+            const result = await editPayment({ id: edit.voucherId, reason, data });
+            setMessage(
+              result.ok
+                ? { tone: 'ok', text: editedMessage(result.data) }
+                : { tone: 'err', text: result.error },
+            );
+            if (result.ok) returnToProcess();
+            return;
+          }
+          const result = await createPayment(data);
           setMessage(
             result.ok
               ? { tone: 'ok', text: `${result.data.voucherNo} posted.` }
@@ -73,7 +100,10 @@ export function PaymentForm({
       <div className={ui.formGrid}>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="pmt-party">To</label>
-          <select className={ui.input} id="pmt-party" name="partyId" required defaultValue="">
+          <select
+            className={ui.input} id="pmt-party" name="partyId" required
+            defaultValue={initial?.partyId ?? ''}
+          >
             <option value="">Choose a supplier</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -82,29 +112,48 @@ export function PaymentForm({
           <label className={ui.label} htmlFor="pmt-date">Date</label>
           <input
             className={ui.input} id="pmt-date" name="voucherDate" type="date"
-            defaultValue={today} required {...(lockedUpto ? { min: nextDay(lockedUpto) } : {})}
+            defaultValue={initial?.voucherDate ?? today} required
+            {...(lockedUpto ? { min: nextDay(lockedUpto) } : {})}
           />
           <LockNote lockedUpto={lockedUpto} />
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="pmt-amount">Amount (₹)</label>
-          <input className={ui.input} id="pmt-amount" name="amountRupees" inputMode="decimal" required placeholder="0.00" />
+          <input
+            className={ui.input} id="pmt-amount" name="amountRupees" inputMode="decimal" required
+            defaultValue={initial?.amountRupees ?? ''}
+          />
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="pmt-from">Paid from</label>
-          <select className={ui.input} id="pmt-from" name="fromAccountCode" defaultValue="BANK">
+          <select
+            className={ui.input} id="pmt-from" name="fromAccountCode" required
+            defaultValue={initial?.accountCode ?? ''}
+          >
+            <option value="">Choose</option>
             <option value="BANK">Bank</option>
             <option value="CASH">Cash</option>
           </select>
         </div>
-        <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
+        <div className={ui.field}>
           <label className={ui.label} htmlFor="pmt-ref">Reference</label>
-          <input className={ui.input} id="pmt-ref" name="reference" maxLength={100} placeholder="UTR or cheque number" />
+          <input
+            className={ui.input} id="pmt-ref" name="reference" maxLength={100}
+            defaultValue={initial?.reference ?? ''}
+          />
         </div>
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="pmt-narration">Narration</label>
+          <input
+            className={ui.input} id="pmt-narration" name="narration" maxLength={500}
+            defaultValue={initial?.narration ?? ''}
+          />
+        </div>
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
       <div className={ui.actions}>
-        <button className={ui.button} type="submit" disabled={pending}>
-          {pending ? 'Recording…' : 'Record payment'}
+        <button className={ui.button} type="submit" disabled={pending || !reasonReady(edit, reason)}>
+          {pending ? 'Saving…' : edit ? 'Post correction' : 'Record payment'}
         </button>
         <Status message={message} />
       </div>
@@ -112,8 +161,14 @@ export function PaymentForm({
   );
 }
 
-interface JournalLine { accountCode: string; debitRupees: string; creditRupees: string }
+export interface JournalLine { accountCode: string; debitRupees: string; creditRupees: string }
 const emptyJournalLine = (): JournalLine => ({ accountCode: '', debitRupees: '', creditRupees: '' });
+
+export interface JournalInitial {
+  voucherDate: string;
+  narration: string;
+  lines: JournalLine[];
+}
 
 /**
  * A journal: the only voucher where the accounts are chosen by hand.
@@ -126,15 +181,22 @@ export function JournalForm({
   accounts,
   today,
   lockedUpto,
+  initial,
+  edit,
 }: {
   accounts: AccountOption[];
   today: string;
   lockedUpto: string | null;
+  initial?: JournalInitial;
+  edit?: EditTarget;
 }) {
   const [pending, start] = useTransition();
-  const [lines, setLines] = useState<JournalLine[]>([emptyJournalLine(), emptyJournalLine()]);
-  const [narration, setNarration] = useState('');
-  const [voucherDate, setVoucherDate] = useState(today);
+  const [lines, setLines] = useState<JournalLine[]>(
+    initial?.lines.length ? initial.lines : [emptyJournalLine(), emptyJournalLine()],
+  );
+  const [narration, setNarration] = useState(initial?.narration ?? '');
+  const [voucherDate, setVoucherDate] = useState(initial?.voucherDate ?? today);
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<Message>(null);
 
   const totals = lines.reduce(
@@ -162,11 +224,22 @@ export function JournalForm({
       action={() => {
         setMessage(null);
         start(async () => {
-          const result = await createJournal({
+          const data = {
             voucherDate,
             narration,
             lines: lines.filter((l) => l.accountCode),
-          });
+          };
+          if (edit) {
+            const result = await editJournal({ id: edit.voucherId, reason, data });
+            setMessage(
+              result.ok
+                ? { tone: 'ok', text: editedMessage(result.data) }
+                : { tone: 'err', text: result.error },
+            );
+            if (result.ok) returnToProcess();
+            return;
+          }
+          const result = await createJournal(data);
           if (result.ok) {
             setMessage({ tone: 'ok', text: `${result.data.voucherNo} posted.` });
             setLines([emptyJournalLine(), emptyJournalLine()]);
@@ -192,7 +265,6 @@ export function JournalForm({
           <input
             className={ui.input} id="jv-narration" value={narration} required
             onChange={(e) => setNarration(e.target.value)} maxLength={500}
-            placeholder="Why this entry is being made"
             aria-describedby="jv-narration-hint"
           />
           <p className={ui.hint} id="jv-narration-hint">
@@ -200,6 +272,7 @@ export function JournalForm({
             about, and the one nobody can answer for.
           </p>
         </div>
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
 
       <div className={ui.tableWrap} style={{ marginTop: 18 }}>
@@ -277,8 +350,12 @@ export function JournalForm({
       </div>
 
       <div className={ui.actions} style={{ marginTop: 12 }}>
-        <button className={ui.button} type="submit" disabled={pending || !balanced || !narration}>
-          {pending ? 'Posting…' : 'Post journal'}
+        <button
+          className={ui.button}
+          type="submit"
+          disabled={pending || !balanced || !narration || !reasonReady(edit, reason)}
+        >
+          {pending ? 'Saving…' : edit ? 'Post correction' : 'Post journal'}
         </button>
         <Status message={message} />
       </div>
@@ -286,24 +363,53 @@ export function JournalForm({
   );
 }
 
+export interface ContraInitial {
+  voucherDate: string;
+  fromAccountCode: 'BANK' | 'CASH';
+  amountRupees: string;
+  narration: string;
+}
+
 /** Moving money between the company's own cash and bank. */
-export function ContraForm({ today, lockedUpto }: { today: string; lockedUpto: string | null }) {
+export function ContraForm({
+  today,
+  lockedUpto,
+  initial,
+  edit,
+}: {
+  today: string;
+  lockedUpto: string | null;
+  initial?: ContraInitial;
+  edit?: EditTarget;
+}) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<Message>(null);
-  const [from, setFrom] = useState('BANK');
+  const [from, setFrom] = useState<string>(initial?.fromAccountCode ?? '');
+  const [reason, setReason] = useState('');
 
   return (
     <form
       action={(formData: FormData) => {
         setMessage(null);
         start(async () => {
-          const result = await createContra({
+          const data = {
             voucherDate: String(formData.get('voucherDate') ?? today),
             fromAccountCode: from,
             toAccountCode: from === 'BANK' ? 'CASH' : 'BANK',
             amountRupees: String(formData.get('amountRupees') ?? ''),
             narration: String(formData.get('narration') ?? ''),
-          });
+          };
+          if (edit) {
+            const result = await editContra({ id: edit.voucherId, reason, data });
+            setMessage(
+              result.ok
+                ? { tone: 'ok', text: editedMessage(result.data) }
+                : { tone: 'err', text: result.error },
+            );
+            if (result.ok) returnToProcess();
+            return;
+          }
+          const result = await createContra(data);
           setMessage(
             result.ok
               ? { tone: 'ok', text: `${result.data.voucherNo} posted.` }
@@ -315,7 +421,11 @@ export function ContraForm({ today, lockedUpto }: { today: string; lockedUpto: s
       <div className={ui.formGrid}>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="ctr-from">Move money</label>
-          <select className={ui.input} id="ctr-from" value={from} onChange={(e) => setFrom(e.target.value)}>
+          <select
+            className={ui.input} id="ctr-from" value={from} required
+            onChange={(e) => setFrom(e.target.value)}
+          >
+            <option value="">Choose</option>
             <option value="BANK">From bank to cash</option>
             <option value="CASH">From cash to bank</option>
           </select>
@@ -323,23 +433,35 @@ export function ContraForm({ today, lockedUpto }: { today: string; lockedUpto: s
         <div className={ui.field}>
           <label className={ui.label} htmlFor="ctr-date">Date</label>
           <input
-            className={ui.input} id="ctr-date" name="voucherDate" type="date" defaultValue={today}
+            className={ui.input} id="ctr-date" name="voucherDate" type="date"
+            defaultValue={initial?.voucherDate ?? today}
             required {...(lockedUpto ? { min: nextDay(lockedUpto) } : {})}
           />
           <LockNote lockedUpto={lockedUpto} />
         </div>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="ctr-amount">Amount (₹)</label>
-          <input className={ui.input} id="ctr-amount" name="amountRupees" inputMode="decimal" required placeholder="0.00" />
+          <input
+            className={ui.input} id="ctr-amount" name="amountRupees" inputMode="decimal" required
+            defaultValue={initial?.amountRupees ?? ''}
+          />
         </div>
         <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
           <label className={ui.label} htmlFor="ctr-narration">Narration</label>
-          <input className={ui.input} id="ctr-narration" name="narration" maxLength={500} />
+          <input
+            className={ui.input} id="ctr-narration" name="narration" maxLength={500}
+            defaultValue={initial?.narration ?? ''}
+          />
         </div>
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
       <div className={ui.actions}>
-        <button className={ui.button} type="submit" disabled={pending}>
-          {pending ? 'Recording…' : 'Record contra'}
+        <button
+          className={ui.button}
+          type="submit"
+          disabled={pending || !from || !reasonReady(edit, reason)}
+        >
+          {pending ? 'Saving…' : edit ? 'Post correction' : 'Record contra'}
         </button>
         <Status message={message} />
       </div>
@@ -353,10 +475,11 @@ export function ContraForm({ today, lockedUpto }: { today: string; lockedUpto: s
 }
 
 /**
- * Reversing a posted voucher: the only way to correct one.
+ * Reversing a posted voucher without replacing it.
  *
- * The reason is required and goes into the reversal's narration, so the books
- * carry why as well as what. Dated today by default rather than on the
+ * Edit is the usual way to fix an entry; this is for one that should not exist
+ * at all. The reason is required and goes into the reversal's narration, so the
+ * books carry why as well as what. Dated today by default rather than on the
  * original's date, because back-dating a correction into a filed period changes
  * figures that have already been reported.
  */
@@ -384,7 +507,7 @@ export function ReverseButton({
 
   return (
     <div style={{ display: 'grid', gap: 6, minWidth: 220 }}>
-      <label className="sr-only" htmlFor={`rev-${voucherId}`}>
+      <label className={ui.label} htmlFor={`rev-${voucherId}`}>
         Why {voucherNo} is being reversed
       </label>
       <input
@@ -392,7 +515,6 @@ export function ReverseButton({
         id={`rev-${voucherId}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        placeholder="Why — e.g. entered in error"
         maxLength={300}
       />
       <div className={ui.actions}>

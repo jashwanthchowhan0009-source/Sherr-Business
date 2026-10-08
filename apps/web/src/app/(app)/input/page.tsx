@@ -3,7 +3,6 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Band, EmptyState, Panel, StatusPill, Table, ui } from '@/components/ui';
 import { can } from '@/lib/auth/permissions';
 import { DECLARED_DOCUMENT_TYPE_LABELS, type DeclaredDocumentType } from '@/lib/db/schema';
-import { getCompany } from '@/server/queries';
 import { extractionConfigured, getInbox } from '@/server/inbox-queries';
 import { withContext } from '../_guard';
 import { UploadPanel } from './UploadPanel';
@@ -20,7 +19,7 @@ const dateTimeFmt = new Intl.DateTimeFormat('en-IN', {
 
 export default async function InputPage() {
   return withContext(async (ctx) => {
-    const [{ org }, documents] = await Promise.all([getCompany(ctx), getInbox(ctx)]);
+    const documents = await getInbox(ctx);
     const aiReady = extractionConfigured();
     const mayExtract = can(ctx.role, 'document:extract');
 
@@ -31,10 +30,7 @@ export default async function InputPage() {
           subtitle="Collect and extract — documents in, structured fields out."
         />
 
-        <UploadPanel
-          readOnly={!can(ctx.role, 'document:upload')}
-          inboxEmail={inboxAddressFor(org?.tradeName ?? org?.legalName ?? null)}
-        />
+        <UploadPanel readOnly={!can(ctx.role, 'document:upload')} />
 
         <Band>
           {documents.length === 0
@@ -199,23 +195,6 @@ function countBlockers(validation: unknown): number {
   const findings = (validation as { findings?: unknown }).findings;
   if (!Array.isArray(findings)) return 0;
   return findings.filter((f) => (f as { severity?: string }).severity === 'blocker').length;
-}
-
-/**
- * The forwarding address shown on the panel.
- *
- * Derived from the company name so the screen reads like the reference design
- * rather than showing a placeholder. Inbound email is not built: the address is
- * presented as where bills will be forwarded once it is, and it is labelled as
- * such on the page rather than implied to work today.
- */
-function inboxAddressFor(name: string | null): string {
-  const slug = (name ?? 'company')
-    .toLowerCase()
-    .replace(/\[mock\]/g, '')
-    .replace(/[^a-z0-9]+/g, '')
-    .slice(0, 18);
-  return `${slug || 'company'}@in.sherrbyte.com`;
 }
 
 function formatBytes(bytes: bigint): string {

@@ -69,6 +69,8 @@ export async function getVouchers(
         taxablePaise: vouchers.taxablePaise,
         totalPaise: vouchers.totalPaise,
         reversedByVoucherId: vouchers.reversedByVoucherId,
+        reversesVoucherId: vouchers.reversesVoucherId,
+        correctsVoucherId: vouchers.correctsVoucherId,
         partyName: parties.name,
         partyGstin: parties.gstin,
       })

@@ -26,7 +26,8 @@ export interface TaxLine {
   unit: string;
   quantity: string;
   unitPriceRupees: string;
-  gstRateBps: number;
+  /** Null until someone chooses a rate: no slab is assumed on their behalf. */
+  gstRateBps: number | null;
   reverseCharge: boolean;
 }
 
@@ -44,12 +45,58 @@ export const emptyTaxLine = (): TaxLine => ({
   itemId: '',
   description: '',
   hsnSac: '',
-  unit: 'NOS',
-  quantity: '1',
+  unit: '',
+  quantity: '',
   unitPriceRupees: '',
-  gstRateBps: 1800,
+  gstRateBps: null,
   reverseCharge: false,
 });
+
+/** A stored voucher line, as the edit page hands it to a form. */
+export interface StoredTaxLine {
+  itemId: string | null;
+  description: string;
+  hsnSac: string | null;
+  unit: string | null;
+  /** Scaled by QTY_SCALE, as stored. */
+  quantity: string;
+  unitPricePaise: string;
+  gstRateBps: number;
+  reverseCharge: boolean;
+}
+
+/** Turns stored lines back into the editor's shape, so an entry can be edited. */
+export function taxLinesFromStored(lines: readonly StoredTaxLine[]): TaxLine[] {
+  if (lines.length === 0) return [emptyTaxLine()];
+  return lines.map((l) => ({
+    itemId: l.itemId ?? '',
+    description: l.description,
+    hsnSac: l.hsnSac ?? '',
+    unit: l.unit ?? '',
+    quantity: formatQuantity(BigInt(l.quantity)),
+    unitPriceRupees: paiseToPlainRupees(BigInt(l.unitPricePaise)),
+    gstRateBps: l.gstRateBps,
+    reverseCharge: l.reverseCharge,
+  }));
+}
+
+/** 25000n (2.5 at QTY_SCALE) → "2.5". */
+export function formatQuantity(scaled: bigint): string {
+  const whole = scaled / QTY_SCALE;
+  const frac = scaled % QTY_SCALE;
+  if (frac === 0n) return whole.toString();
+  const digits = String(QTY_SCALE).length - 1;
+  return `${whole}.${frac.toString().padStart(digits, '0').replace(/0+$/, '')}`;
+}
+
+/** 1234550n → "12345.50": a plain figure an input can hold and parseRupees can read. */
+export function paiseToPlainRupees(value: bigint): string {
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const rupees = abs / 100n;
+  const rest = (abs % 100n).toString().padStart(2, '0');
+  return `${negative ? '-' : ''}${rupees}.${rest}`;
+}
 
 /** The lines that carry a figure, in the shape a server action expects. */
 export function usableLines(lines: readonly TaxLine[]) {
@@ -57,14 +104,24 @@ export function usableLines(lines: readonly TaxLine[]) {
     .filter((l) => l.unitPriceRupees.trim() !== '')
     .map((l) => ({
       ...(l.itemId ? { itemId: l.itemId } : {}),
-      description: l.description || 'Item',
+      description: l.description,
       hsnSac: l.hsnSac,
       unit: l.unit,
       quantity: l.quantity || '1',
       unitPriceRupees: l.unitPriceRupees,
-      gstRateBps: l.gstRateBps,
+      // Left unset, the server refuses the line rather than assuming a slab.
+      gstRateBps: l.gstRateBps ?? '',
       reverseCharge: l.reverseCharge,
     }));
+}
+
+/** True when every line with a figure also has a description and a rate. */
+export function linesComplete(lines: readonly TaxLine[]): boolean {
+  const filled = lines.filter((l) => l.unitPriceRupees.trim() !== '');
+  return (
+    filled.length > 0 &&
+    filled.every((l) => l.gstRateBps !== null && l.description.trim() !== '')
+  );
 }
 
 /**
@@ -82,12 +139,14 @@ export function useGstPreview(
     if (!supplyType) return null;
     const usable = lines.filter((l) => l.unitPriceRupees.trim() !== '');
     if (usable.length === 0) return null;
+    // Wait for a rate on every line rather than previewing an assumed one.
+    if (usable.some((l) => l.gstRateBps === null)) return null;
     try {
       return calculateInvoice(
         usable.map((l) => ({
           quantity: l.quantity.trim() === '' ? QTY_SCALE : parseQuantity(l.quantity),
           unitPricePaise: parseRupees(l.unitPriceRupees),
-          gstRateBps: l.gstRateBps,
+          gstRateBps: l.gstRateBps ?? 0,
           reverseCharge: l.reverseCharge,
         })),
         supplyType,
@@ -206,11 +265,18 @@ export function TaxLinesEditor({
                 <td>
                   <select
                     className={ui.input}
-                    value={line.gstRateBps}
-                    onChange={(e) => setLine(index, { gstRateBps: Number(e.target.value) })}
+                    value={line.gstRateBps ?? ''}
+                    onChange={(e) =>
+                      setLine(index, {
+                        gstRateBps: e.target.value === '' ? null : Number(e.target.value),
+                      })
+                    }
                     style={{ width: 90 }}
                     aria-label={`GST rate on line ${index + 1}`}
                   >
+                    <option value="" disabled>
+                      Choose
+                    </option>
                     {GST_SLABS.map((bps) => (
                       <option key={bps} value={bps}>{bps / 100}%</option>
                     ))}

@@ -2,10 +2,20 @@
 
 import { useState, useTransition } from 'react';
 import { ui } from '@/components/ui';
-import { createReceipt } from '@/server/ledger';
+import { createReceipt, editReceipt } from '@/server/ledger';
+import { ReasonField, editedMessage, reasonReady, returnToProcess, type EditTarget } from './_shared/edit';
+
+export interface MoneyInitial {
+  partyId: string;
+  voucherDate: string;
+  amountRupees: string;
+  accountCode: 'BANK' | 'CASH';
+  reference: string;
+  narration: string;
+}
 
 /**
- * Recording money received.
+ * Recording money received, or editing a receipt.
  *
  * Allocation is left to the server, which applies it to the oldest open invoice
  * first. A receipt larger than what is outstanding is accepted and the
@@ -15,23 +25,42 @@ import { createReceipt } from '@/server/ledger';
 export function ReceiptForm({
   parties,
   today,
+  initial,
+  edit,
 }: {
   parties: { id: string; name: string }[];
   today: string;
+  initial?: MoneyInitial;
+  edit?: EditTarget;
 }) {
   const [pending, start] = useTransition();
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
 
   function onSubmit(formData: FormData) {
     setMessage(null);
     start(async () => {
-      const result = await createReceipt({
+      const data = {
         partyId: String(formData.get('partyId') ?? ''),
         voucherDate: String(formData.get('voucherDate') ?? today),
         amountRupees: String(formData.get('amountRupees') ?? ''),
-        intoAccountCode: String(formData.get('intoAccountCode') ?? 'BANK'),
+        intoAccountCode: String(formData.get('intoAccountCode') ?? ''),
         reference: String(formData.get('reference') ?? ''),
-      });
+        narration: String(formData.get('narration') ?? ''),
+      };
+
+      if (edit) {
+        const result = await editReceipt({ id: edit.voucherId, reason, data });
+        setMessage(
+          result.ok
+            ? { tone: 'ok', text: editedMessage(result.data) }
+            : { tone: 'err', text: result.error },
+        );
+        if (result.ok) returnToProcess();
+        return;
+      }
+
+      const result = await createReceipt(data);
       setMessage(
         result.ok
           ? { tone: 'ok', text: `${result.data.voucherNo} posted.` }
@@ -49,7 +78,13 @@ export function ReceiptForm({
       <div className={ui.formGrid}>
         <div className={ui.field}>
           <label className={ui.label} htmlFor="rcpt-party">From</label>
-          <select className={ui.input} id="rcpt-party" name="partyId" required defaultValue="">
+          <select
+            className={ui.input}
+            id="rcpt-party"
+            name="partyId"
+            required
+            defaultValue={initial?.partyId ?? ''}
+          >
             <option value="">Choose a customer</option>
             {parties.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -64,7 +99,7 @@ export function ReceiptForm({
             id="rcpt-date"
             name="voucherDate"
             type="date"
-            defaultValue={today}
+            defaultValue={initial?.voucherDate ?? today}
             required
           />
         </div>
@@ -77,33 +112,53 @@ export function ReceiptForm({
             name="amountRupees"
             inputMode="decimal"
             required
-            placeholder="0.00"
+            defaultValue={initial?.amountRupees ?? ''}
           />
         </div>
 
         <div className={ui.field}>
           <label className={ui.label} htmlFor="rcpt-into">Received into</label>
-          <select className={ui.input} id="rcpt-into" name="intoAccountCode" defaultValue="BANK">
+          <select
+            className={ui.input}
+            id="rcpt-into"
+            name="intoAccountCode"
+            required
+            defaultValue={initial?.accountCode ?? ''}
+          >
+            <option value="">Choose</option>
             <option value="BANK">Bank</option>
             <option value="CASH">Cash</option>
           </select>
         </div>
 
-        <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
+        <div className={ui.field}>
           <label className={ui.label} htmlFor="rcpt-ref">Reference</label>
           <input
             className={ui.input}
             id="rcpt-ref"
             name="reference"
             maxLength={100}
-            placeholder="UTR or cheque number"
+            defaultValue={initial?.reference ?? ''}
           />
         </div>
+
+        <div className={ui.field}>
+          <label className={ui.label} htmlFor="rcpt-narration">Narration</label>
+          <input
+            className={ui.input}
+            id="rcpt-narration"
+            name="narration"
+            maxLength={500}
+            defaultValue={initial?.narration ?? ''}
+          />
+        </div>
+
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
 
       <div className={ui.actions}>
-        <button className={ui.button} type="submit" disabled={pending}>
-          {pending ? 'Recording…' : 'Record receipt'}
+        <button className={ui.button} type="submit" disabled={pending || !reasonReady(edit, reason)}>
+          {pending ? 'Saving…' : edit ? 'Post correction' : 'Record receipt'}
         </button>
         {message ? (
           <span className={message.tone === 'ok' ? ui.statusOk : ui.statusErr} aria-live="polite">

@@ -50,9 +50,9 @@ export function CompanyForm({
                errors={fieldErrors.tradeName} disabled={readOnly}
                hint="Optional. The name customers know you by." />
         <Field name="pan" label="PAN" defaultValue={initial.pan} errors={fieldErrors.pan}
-               disabled={readOnly} placeholder="AAAAA9999A" hint="Ten characters, letters uppercase." />
+               disabled={readOnly} hint="Ten characters, letters uppercase." />
         <Field name="stateCode" label="State code" defaultValue={initial.stateCode}
-               errors={fieldErrors.stateCode} disabled={readOnly} placeholder="29"
+               errors={fieldErrors.stateCode} disabled={readOnly}
                hint="Two digits, matching the first two of your GSTIN." />
 
         <div className={ui.field}>
@@ -91,10 +91,10 @@ export function CompanyForm({
 }
 
 function Field({
-  name, label, defaultValue, errors, disabled, hint, placeholder, required,
+  name, label, defaultValue, errors, disabled, hint, required,
 }: {
   name: string; label: string; defaultValue: string; errors?: string[];
-  disabled: boolean; hint?: string; placeholder?: string; required?: boolean;
+  disabled: boolean; hint?: string; required?: boolean;
 }) {
   return (
     <div className={ui.field}>
@@ -105,7 +105,6 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         disabled={disabled}
-        placeholder={placeholder}
         required={required}
         autoComplete="off"
       />

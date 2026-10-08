@@ -242,7 +242,6 @@ export function ReviewForm({
               value={placeOfSupply}
               onChange={(e) => setPlaceOfSupply(e.target.value.replace(/\D/g, '').slice(0, 2))}
               inputMode="numeric"
-              placeholder="36"
             />
             <p className={ui.hint}>
               On a purchase this is your own state — you are the recipient.
@@ -431,7 +430,6 @@ export function ReviewForm({
               id="r-reject"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="This is a delivery note, not a bill"
               maxLength={500}
             />
             <div className={ui.actions}>

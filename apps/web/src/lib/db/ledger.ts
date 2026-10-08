@@ -99,6 +99,8 @@ export interface CreateVoucherInput {
   sourceDocumentId?: string | null;
   /** Set on a reversal, naming the voucher it cancels. */
   reversesVoucherId?: string | null;
+  /** Set on a replacement posted by "Edit", naming the voucher it corrects. */
+  correctsVoucherId?: string | null;
 }
 
 export interface CreatedVoucher {
@@ -124,7 +126,8 @@ export async function createVoucher(tx: Tx, input: CreateVoucherInput): Promise<
       supplier_state_code, place_of_supply_state_code, supply_type,
       reference, supplier_invoice_no, supplier_invoice_date, narration,
       taxable_paise, cgst_paise, sgst_paise, igst_paise, cess_paise,
-      round_off_paise, total_paise, status, source_document_id, reverses_voucher_id
+      round_off_paise, total_paise, status, source_document_id, reverses_voucher_id,
+      corrects_voucher_id
     ) values (
       app_current_org_id(), ${input.voucherType}, ${input.voucherNo}, ${input.fyLabel},
       ${input.voucherDate}::date, ${input.partyId}::uuid,
@@ -134,7 +137,7 @@ export async function createVoucher(tx: Tx, input: CreateVoucherInput): Promise<
       ${calc?.taxablePaise ?? 0n}, ${calc?.cgstPaise ?? 0n}, ${calc?.sgstPaise ?? 0n},
       ${calc?.igstPaise ?? 0n}, ${calc?.cessPaise ?? 0n}, ${calc?.roundOffPaise ?? 0n},
       ${totalPaise}, 'draft', ${input.sourceDocumentId ?? null}::uuid,
-      ${input.reversesVoucherId ?? null}::uuid
+      ${input.reversesVoucherId ?? null}::uuid, ${input.correctsVoucherId ?? null}::uuid
     ) returning id
   `);
   const voucher = rows[0];
@@ -452,6 +455,7 @@ export async function findDuplicateBill(
        and fy_label = ${input.fyLabel}
        and voucher_type in ('purchase', 'debit_note')
        and status = 'posted'
+       and reversed_by_voucher_id is null
      limit 1
   `);
   const row = rows[0];

@@ -12,6 +12,10 @@ vi.mock('../../src/server/purchases', () => ({
     data: { voucherNo: 'BILL/25-26/0001', totalPaise: '1180000', posted: true, reverseChargeVoucherNo: null },
   })),
   reverseVoucher: vi.fn(async () => ({ ok: true, data: { voucherNo: 'REV/25-26/0001' } })),
+  editPayment: vi.fn(),
+  editJournal: vi.fn(),
+  editContra: vi.fn(),
+  editPurchaseBill: vi.fn(),
 }));
 
 const ACCOUNTS = [
@@ -149,12 +153,23 @@ describe('PurchaseBillForm', () => {
   it('will not post without that number', () => {
     setup();
     fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: SUPPLIER.id } });
+    fireEvent.change(screen.getByLabelText('Their invoice date'), { target: { value: '2025-07-14' } });
+    fireEvent.change(screen.getByLabelText('Description on line 1'), { target: { value: 'Rice' } });
+    fireEvent.change(screen.getByLabelText('Rate on line 1'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('GST rate on line 1'), { target: { value: '500' } });
     expect(screen.getByRole('button', { name: 'Post bill' })).toHaveProperty('disabled', true);
 
     fireEvent.change(screen.getByLabelText('Their invoice number'), {
       target: { value: 'SUN/001' },
     });
     expect(screen.getByRole('button', { name: 'Post bill' })).toHaveProperty('disabled', false);
+  });
+
+  it('starts empty: no supplier date, unit, quantity or GST rate is assumed', () => {
+    setup();
+    expect((screen.getByLabelText('Their invoice date') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Quantity on line 1') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('GST rate on line 1') as HTMLSelectElement).value).toBe('');
   });
 
   it('states that the place of supply is our own state, because we are the recipient', () => {
@@ -183,6 +198,9 @@ describe('PurchaseBillForm', () => {
     setup();
     fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: SUPPLIER.id } });
     fireEvent.change(screen.getByLabelText('Rate on line 1'), { target: { value: '10000' } });
+    // No working until a rate is chosen: none is assumed.
+    expect(screen.queryByText(/input credit: an asset, not a liability/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('GST rate on line 1'), { target: { value: '1800' } });
     expect(screen.getByText(/input credit: an asset, not a liability/)).toBeDefined();
     expect(screen.getByText('₹11,800.00')).toBeDefined();
   });
@@ -230,10 +248,12 @@ describe('ContraForm', () => {
   it('offers only the two directions money can move', () => {
     render(<ContraForm today="2025-07-15" lockedUpto={null} />);
     const select = screen.getByLabelText('Move money') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.textContent)).toEqual([
+    expect([...select.options].filter((o) => o.value).map((o) => o.textContent)).toEqual([
       'From bank to cash',
       'From cash to bank',
     ]);
+    // Neither direction is chosen for the person.
+    expect(select.value).toBe('');
   });
 
   it('says why a contra is restricted to cash and bank', () => {
@@ -248,11 +268,39 @@ describe('PaymentForm', () => {
     expect(screen.getByText(/Add a supplier before recording a payment/)).toBeDefined();
   });
 
-  it('defaults to paying from the bank', () => {
+  it('asks where the money was paid from rather than assuming', () => {
     render(
       <PaymentForm parties={[{ id: SUPPLIER.id, name: SUPPLIER.name }]} today="2025-07-15" lockedUpto={null} />,
     );
-    expect((screen.getByLabelText('Paid from') as HTMLSelectElement).value).toBe('BANK');
+    expect((screen.getByLabelText('Paid from') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByLabelText('Amount (₹)') as HTMLInputElement).placeholder).toBe('');
+  });
+
+  it('opens filled in when editing, and asks why a posted payment is changing', () => {
+    render(
+      <PaymentForm
+        parties={[{ id: SUPPLIER.id, name: SUPPLIER.name }]}
+        today="2025-07-15"
+        lockedUpto={null}
+        edit={{ voucherId: 'v1', voucherNo: 'PMT/25-26/0003', posted: true }}
+        initial={{
+          partyId: SUPPLIER.id,
+          voucherDate: '2025-07-10',
+          amountRupees: '5000.00',
+          accountCode: 'CASH',
+          reference: 'UTR123',
+          narration: '',
+        }}
+      />,
+    );
+    expect((screen.getByLabelText('Amount (₹)') as HTMLInputElement).value).toBe('5000.00');
+    expect((screen.getByLabelText('Paid from') as HTMLSelectElement).value).toBe('CASH');
+    const save = screen.getByRole('button', { name: 'Post correction' });
+    expect(save).toHaveProperty('disabled', true);
+    fireEvent.change(screen.getByLabelText('Reason for the change'), {
+      target: { value: 'Amount was wrong' },
+    });
+    expect(screen.getByRole('button', { name: 'Post correction' })).toHaveProperty('disabled', false);
   });
 });
 

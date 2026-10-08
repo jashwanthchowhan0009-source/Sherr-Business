@@ -6,12 +6,12 @@ import { formatRupees, paise } from '@/lib/money';
 import { MATCH_TIER_LABELS, type MatchTier } from '@/lib/banking/matching';
 import {
   acceptMatch,
-  addBankAccount,
   ignoreStatementLine,
   importStatement,
   rejectMatch,
   rematchStatement,
 } from '@/server/banking';
+import { BankAccountForm } from './BankAccountForm';
 
 export interface BankAccountOption {
   id: string;
@@ -81,61 +81,7 @@ export function BankPanel({
           Add the bank account a statement belongs to. Only the last four digits of the account
           number are stored — the full number is not needed to reconcile and is not worth holding.
         </p>
-        {readOnly ? null : (
-          <form
-            action={(formData: FormData) => {
-              setMessage(null);
-              start(async () => {
-                const result = await addBankAccount({
-                  ledgerAccountId: String(formData.get('ledgerAccountId') ?? ''),
-                  bankName: String(formData.get('bankName') ?? ''),
-                  accountLabel: String(formData.get('accountLabel') ?? ''),
-                  accountNumberLast4: String(formData.get('accountNumberLast4') ?? ''),
-                  ifsc: String(formData.get('ifsc') ?? ''),
-                });
-                setMessage(
-                  result.ok
-                    ? { tone: 'ok', text: `${result.data.label} added.` }
-                    : { tone: 'err', text: result.error },
-                );
-              });
-            }}
-          >
-            <div className={ui.formGrid}>
-              <div className={ui.field}>
-                <label className={ui.label} htmlFor="ba-bank">Bank</label>
-                <input className={ui.input} id="ba-bank" name="bankName" required maxLength={100} placeholder="HDFC Bank" />
-              </div>
-              <div className={ui.field}>
-                <label className={ui.label} htmlFor="ba-label">Name it</label>
-                <input className={ui.input} id="ba-label" name="accountLabel" required maxLength={100} placeholder="Current account" />
-              </div>
-              <div className={ui.field}>
-                <label className={ui.label} htmlFor="ba-ledger">Posts to</label>
-                <select className={ui.input} id="ba-ledger" name="ledgerAccountId" required defaultValue="">
-                  <option value="">Choose a ledger account</option>
-                  {ledgerAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className={ui.field}>
-                <label className={ui.label} htmlFor="ba-last4">Last four digits</label>
-                <input className={ui.input} id="ba-last4" name="accountNumberLast4" maxLength={4} inputMode="numeric" />
-              </div>
-              <div className={ui.field}>
-                <label className={ui.label} htmlFor="ba-ifsc">IFSC</label>
-                <input className={ui.input} id="ba-ifsc" name="ifsc" maxLength={11} placeholder="HDFC0001234" style={{ fontFamily: 'ui-monospace, monospace' }} />
-              </div>
-            </div>
-            <div className={ui.actions}>
-              <button className={ui.button} type="submit" disabled={pending}>
-                {pending ? 'Adding…' : 'Add bank account'}
-              </button>
-              <Status message={message} />
-            </div>
-          </form>
-        )}
+        {readOnly ? null : <BankAccountForm ledgerAccounts={ledgerAccounts} />}
       </>
     );
   }

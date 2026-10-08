@@ -1,6 +1,6 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { defineAction } from '@/lib/auth/action';
@@ -18,7 +18,7 @@ import {
   parseStatement,
   verifyRunningBalance,
 } from '@/lib/banking/statement-parser';
-import { invalidInput, notFound } from '@/lib/errors';
+import { conflict, invalidInput, notFound } from '@/lib/errors';
 
 const optional = (schema: z.ZodString) => schema.optional().or(z.literal(''));
 
@@ -28,7 +28,7 @@ const bankAccountSchema = z.object({
   accountLabel: z.string().trim().min(2, 'Give this account a name you will recognise').max(100),
   accountNumberLast4: optional(z.string().trim().regex(/^[0-9]{4}$/, 'Just the last four digits')),
   ifsc: optional(
-    z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'IFSC looks like HDFC0001234'),
+    z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'An IFSC is 11 characters: four letters, a zero, then six letters or digits'),
   ),
 });
 
@@ -67,6 +67,78 @@ const addBankAccountAction = defineAction({
         accountLabel: row.accountLabel,
         last4: row.accountNumberLast4,
         ledgerAccount: ledger.code,
+      },
+    });
+
+    revalidatePath('/process');
+    return { id: row.id, label: `${row.bankName} — ${row.accountLabel}` };
+  },
+});
+
+/**
+ * Editing a bank account's details.
+ *
+ * The ledger account it posts to can only change while no statement has been
+ * imported: once lines have been reconciled against one ledger, moving the
+ * account to another would leave those reconciliations pointing at entries the
+ * account no longer owns.
+ */
+const updateBankAccountAction = defineAction({
+  name: 'bank.account.updated',
+  capability: 'bank:import',
+  input: bankAccountSchema.extend({
+    id: z.string().uuid(),
+    isActive: z.coerce.boolean().default(true),
+  }),
+  handler: async ({ tx, orgId, input, audit }) => {
+    const [before] = await tx
+      .select()
+      .from(bankAccounts)
+      .where(and(eq(bankAccounts.id, input.id), eq(bankAccounts.orgId, orgId)));
+    if (!before) throw notFound('Bank account');
+
+    if (input.ledgerAccountId !== before.ledgerAccountId) {
+      const { rows } = await tx.execute<{ n: string }>(sql`
+        select count(*)::text as n from bank_statements where bank_account_id = ${input.id}::uuid
+      `);
+      if (Number(rows[0]?.n ?? 0) > 0) {
+        throw conflict(
+          'Statements have already been imported into this account, so the ledger it posts to cannot change.',
+        );
+      }
+      const [ledger] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.id, input.ledgerAccountId));
+      if (!ledger) throw notFound('Ledger account');
+    }
+
+    const [row] = await tx
+      .update(bankAccounts)
+      .set({
+        ledgerAccountId: input.ledgerAccountId,
+        bankName: input.bankName,
+        accountLabel: input.accountLabel,
+        accountNumberLast4: input.accountNumberLast4 || null,
+        ifsc: input.ifsc || null,
+        isActive: input.isActive,
+        updatedAt: new Date(),
+      })
+      .where(eq(bankAccounts.id, input.id))
+      .returning();
+    if (!row) throw notFound('Bank account');
+
+    await audit({
+      action: 'bank.account.updated',
+      subjectKind: 'bank_account',
+      subjectId: row.id,
+      before: {
+        bankName: before.bankName, accountLabel: before.accountLabel,
+        last4: before.accountNumberLast4, ifsc: before.ifsc, isActive: before.isActive,
+      },
+      after: {
+        bankName: row.bankName, accountLabel: row.accountLabel,
+        last4: row.accountNumberLast4, ifsc: row.ifsc, isActive: row.isActive,
       },
     });
 
@@ -306,4 +378,8 @@ export async function ignoreStatementLine(input: unknown) {
 
 export async function unreconcileStatementLine(input: unknown) {
   return unreconcileAction(input);
+}
+
+export async function updateBankAccount(input: unknown) {
+  return updateBankAccountAction(input);
 }

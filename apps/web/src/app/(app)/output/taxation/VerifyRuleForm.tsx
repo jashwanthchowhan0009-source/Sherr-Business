@@ -49,15 +49,14 @@ export function VerifyRuleForm({
 
   return (
     <div style={{ display: 'grid', gap: 6, minWidth: 260 }}>
-      <label className="sr-only" htmlFor={`verify-${ruleId}`}>
-        Who is signing off {ruleLabel}
+      <label className={ui.label} htmlFor={`verify-${ruleId}`}>
+        Who is signing off {ruleLabel} — name and membership number
       </label>
       <input
         className={ui.input}
         id={`verify-${ruleId}`}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Name and membership number"
         maxLength={200}
       />
       <div className={ui.actions}>

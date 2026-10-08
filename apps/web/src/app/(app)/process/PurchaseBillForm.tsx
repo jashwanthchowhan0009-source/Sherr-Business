@@ -5,20 +5,31 @@ import { ui } from '@/components/ui';
 import { determineSupplyType } from '@/lib/accounting/gst';
 import { formatRupees, paise } from '@/lib/money';
 import { STATE_CODES } from '@/lib/india/gstin';
-import { createPurchaseBill } from '@/server/purchases';
+import { createPurchaseBill, editPurchaseBill } from '@/server/purchases';
 import { nextDay, type PartyOption } from './InvoiceForm';
 import {
   GstWorking,
   TaxLinesEditor,
   emptyTaxLine,
+  linesComplete,
   usableLines,
   useGstPreview,
   type ItemOption,
   type TaxLine,
 } from './_shared/TaxLines';
+import { ReasonField, editedMessage, reasonReady, returnToProcess, type EditTarget } from './_shared/edit';
+
+export interface PurchaseBillInitial {
+  partyId: string;
+  voucherDate: string;
+  supplierInvoiceNo: string;
+  supplierInvoiceDate: string;
+  narration: string;
+  lines: TaxLine[];
+}
 
 /**
- * Entering a purchase bill.
+ * Entering a purchase bill, or editing one.
  *
  * The supplier's own invoice number is required, not optional, and it is the
  * reason this form exists separately from the invoice form. The same bill
@@ -32,19 +43,27 @@ export function PurchaseBillForm({
   companyStateCode,
   today,
   lockedUpto,
+  initial,
+  edit,
 }: {
   parties: PartyOption[];
   items: ItemOption[];
   companyStateCode: string | null;
   today: string;
   lockedUpto: string | null;
+  initial?: PurchaseBillInitial;
+  edit?: EditTarget;
 }) {
   const [pending, start] = useTransition();
-  const [partyId, setPartyId] = useState('');
-  const [voucherDate, setVoucherDate] = useState(today);
-  const [supplierInvoiceNo, setSupplierInvoiceNo] = useState('');
-  const [supplierInvoiceDate, setSupplierInvoiceDate] = useState(today);
-  const [lines, setLines] = useState<TaxLine[]>([emptyTaxLine()]);
+  const [partyId, setPartyId] = useState(initial?.partyId ?? '');
+  const [voucherDate, setVoucherDate] = useState(initial?.voucherDate ?? today);
+  const [supplierInvoiceNo, setSupplierInvoiceNo] = useState(initial?.supplierInvoiceNo ?? '');
+  const [supplierInvoiceDate, setSupplierInvoiceDate] = useState(
+    initial?.supplierInvoiceDate ?? '',
+  );
+  const [narration, setNarration] = useState(initial?.narration ?? '');
+  const [lines, setLines] = useState<TaxLine[]>(initial?.lines ?? [emptyTaxLine()]);
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
 
   const party = parties.find((p) => p.id === partyId) ?? null;
@@ -58,19 +77,36 @@ export function PurchaseBillForm({
         })
       : null;
   const preview = useGstPreview(lines, supplyType);
+  const ready =
+    Boolean(partyId && supplierInvoiceNo && supplierInvoiceDate) &&
+    linesComplete(lines) &&
+    reasonReady(edit, reason);
 
   function submit(post: boolean) {
     setMessage(null);
     start(async () => {
-      const result = await createPurchaseBill({
+      const data = {
         partyId,
         voucherDate,
         supplierInvoiceNo,
         supplierInvoiceDate,
+        narration,
         post,
         lines: usableLines(lines),
-      });
+      };
 
+      if (edit) {
+        const result = await editPurchaseBill({ id: edit.voucherId, reason, data });
+        if (result.ok) {
+          setMessage({ tone: 'ok', text: editedMessage(result.data) });
+          returnToProcess();
+        } else {
+          setMessage({ tone: 'err', text: result.error });
+        }
+        return;
+      }
+
+      const result = await createPurchaseBill(data);
       if (result.ok) {
         setMessage({
           tone: 'ok',
@@ -83,6 +119,8 @@ export function PurchaseBillForm({
         });
         setLines([emptyTaxLine()]);
         setSupplierInvoiceNo('');
+        setSupplierInvoiceDate('');
+        setNarration('');
       } else {
         setMessage({ tone: 'err', text: result.error });
       }
@@ -176,6 +214,19 @@ export function PurchaseBillForm({
               : 'Set your state on the Data tab first.'}
           </p>
         </div>
+
+        <div className={ui.field} style={{ gridColumn: '1 / -1' }}>
+          <label className={ui.label} htmlFor="bill-narration">Narration</label>
+          <input
+            className={ui.input}
+            id="bill-narration"
+            value={narration}
+            onChange={(e) => setNarration(e.target.value)}
+            maxLength={500}
+          />
+        </div>
+
+        <ReasonField edit={edit} value={reason} onChange={setReason} />
       </div>
 
       <TaxLinesEditor lines={lines} items={items} onChange={setLines} allowReverseCharge priceOf={(i) => i.purchasePricePaise ?? i.salePricePaise} />
@@ -199,21 +250,25 @@ export function PurchaseBillForm({
       ) : null}
 
       <div className={ui.actions} style={{ marginTop: 16 }}>
-        <button
-          className={ui.button}
-          type="submit"
-          disabled={pending || !partyId || !supplierInvoiceNo}
-        >
-          {pending ? 'Posting…' : 'Post bill'}
+        <button className={ui.button} type="submit" disabled={pending || !ready}>
+          {pending
+            ? 'Saving…'
+            : edit?.posted
+              ? 'Post correction'
+              : edit
+                ? 'Save and post'
+                : 'Post bill'}
         </button>
-        <button
-          className={ui.buttonGhost}
-          type="button"
-          disabled={pending || !partyId || !supplierInvoiceNo}
-          onClick={() => submit(false)}
-        >
-          Save as draft
-        </button>
+        {edit?.posted ? null : (
+          <button
+            className={ui.buttonGhost}
+            type="button"
+            disabled={pending || !ready}
+            onClick={() => submit(false)}
+          >
+            {edit ? 'Save draft' : 'Save as draft'}
+          </button>
+        )}
         {message ? (
           <span className={message.tone === 'ok' ? ui.statusOk : ui.statusErr} aria-live="polite">
             {message.text}
