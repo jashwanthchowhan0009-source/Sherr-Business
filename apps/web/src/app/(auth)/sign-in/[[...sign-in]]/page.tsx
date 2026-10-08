@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export default function SignInPage() {
   return (
-    <main data-theme="dark" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '48px 16px' }}>
+    <main style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '48px 16px' }}>
       <div>
         {/* Somebody arriving here from a link has nothing else telling them
             whose sign-in box this is, which is the one page where that

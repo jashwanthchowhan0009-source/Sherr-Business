@@ -19,8 +19,8 @@ export default async function PeoplePage() {
     return (
       <>
         <PageHeader
-          title="People & access"
-          subtitle="Who has access, their role, and when it ends."
+          title="People"
+          subtitle="Who has access, what they can do, and when that access ends."
         />
 
         <Panel title="Members" note={`${members.length} with access`} bodyless>

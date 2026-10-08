@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { LogoGlyph, LogoLockup, LogoMark } from '../../src/components/brand/Logo';
-import { AppShell } from '../../src/components/shell/AppShell';
+import { TopBar } from '../../src/components/shell/TopBar';
 
 // next/image does real work in a browser and none of it matters here; what
 // matters is which file is asked for and how it is labelled.
@@ -29,16 +29,7 @@ vi.mock('next/link', () => ({
   ),
 }));
 
-vi.mock('@clerk/nextjs', () => ({
-  UserButton: () => <div data-testid="user-button" />,
-  useOrganization: () => ({ organization: { name: 'Anand Traders Pvt Ltd' } }),
-}));
-
-const push = vi.fn();
-vi.mock('next/navigation', () => ({
-  usePathname: () => '/dashboard',
-  useRouter: () => ({ push }),
-}));
+vi.mock('@clerk/nextjs', () => ({ UserButton: () => <div data-testid="user-button" /> }));
 
 afterEach(cleanup);
 
@@ -98,54 +89,30 @@ describe('LogoLockup', () => {
   });
 });
 
-describe('AppShell', () => {
-  const renderShell = () => render(<AppShell><p>page</p></AppShell>);
-
-  it('makes the mark the way home, labelled, since the glyph carries no text', () => {
-    renderShell();
-    const home = screen.getByRole('link', { name: 'SherrByte — go to the dashboard' });
+describe('TopBar', () => {
+  it('shows the whole mark, not a crop of it, and makes it the way home', () => {
+    // Two things were wrong before: a bare letter that looked like a brand mark
+    // and did nothing when clicked, then an eye crop inside a circle that read
+    // as a close-up photograph. The header shows the artwork entire.
+    render(<TopBar />);
+    const home = screen.getByRole('link', { name: /SherrByte/ });
     expect(home.getAttribute('href')).toBe('/dashboard');
-    // Small sizes use the eye crop: the full mark is a smudge at this size.
-    expect(home.querySelector('img')!.getAttribute('src')).toBe('/brand/glyph.png');
+
+    const img = home.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('/brand/mark.png');
+    expect(img.getAttribute('src')).not.toBe('/brand/glyph.png');
+    // Tall enough to read: the first attempt at this put it at 30px inside a
+    // pill, where it was a speck.
+    expect(Number(img.getAttribute('height'))).toBeGreaterThanOrEqual(34);
+  });
+
+  it('labels that link, since the mark itself carries no text', () => {
+    render(<TopBar />);
+    expect(screen.getByLabelText('SherrByte — go to the dashboard')).toBeDefined();
   });
 
   it('still offers the account button', () => {
-    renderShell();
+    render(<TopBar />);
     expect(screen.getByTestId('user-button')).toBeDefined();
-  });
-
-  it('names the company being worked in', () => {
-    renderShell();
-    expect(screen.getByText('Anand Traders Pvt Ltd')).toBeDefined();
-  });
-
-  it('marks the current page', () => {
-    renderShell();
-    const current = screen.getByRole('link', { name: 'Dashboard' });
-    expect(current.getAttribute('aria-current')).toBe('page');
-  });
-
-  it('shows modules that do not exist yet, but never as links', () => {
-    renderShell();
-    fireEvent.click(screen.getByRole('button', { name: /Employees/ }));
-    expect(screen.getByText('Payroll')).toBeDefined();
-    expect(screen.queryByRole('link', { name: /Payroll/ })).toBeNull();
-  });
-
-  it('opens a real form from Create', () => {
-    renderShell();
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('menuitem', { name: 'Sales invoice' }).getAttribute('href')).toBe(
-      '/process#sales-invoice',
-    );
-  });
-
-  it('jumps to a section from search', () => {
-    renderShell();
-    const [input] = screen.getAllByRole('combobox');
-    fireEvent.focus(input!);
-    fireEvent.change(input!, { target: { value: 'balance sheet' } });
-    fireEvent.keyDown(input!, { key: 'Enter' });
-    expect(push).toHaveBeenCalledWith('/output#balance-sheet');
   });
 });

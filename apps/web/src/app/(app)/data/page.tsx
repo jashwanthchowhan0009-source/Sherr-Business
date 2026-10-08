@@ -48,8 +48,8 @@ export default async function DataPage() {
     return (
       <>
         <PageHeader
-          title="Company"
-          subtitle="Profile, registrations and audit history."
+          title="Data"
+          subtitle="Company profile, registrations and the audit history."
         />
 
         <Panel title="Company profile">

@@ -61,8 +61,8 @@ export default async function OutputPage() {
     return (
       <>
         <PageHeader
-          title="Reports"
-          subtitle={`${fy.longLabel}, as at ${today}`}
+          title="Output"
+          subtitle={`Reports for ${fy.longLabel}, as at ${today}. Every figure traces to a voucher.`}
         />
 
         {/* Returns live on their own page: they are a different job from reading
@@ -77,7 +77,7 @@ export default async function OutputPage() {
             below depends on them: gross profit is wrong by the value of the
             warehouse until stock is entered, and every figure is provisional
             until the period is closed. */}
-        <Band id="closing">Closing the books</Band>
+        <Band>Closing the books</Band>
         <Panel title="Closing stock">
           <ClosingStockForm
             fyEndDate={fy.endDate}
@@ -96,7 +96,7 @@ export default async function OutputPage() {
           </Panel>
         </div>
 
-        <Band id="profit-and-loss">Profit and loss</Band>
+        <Band>Profit and loss</Band>
         <Panel
           title={`${fy.longLabel}, to ${today}`}
           note={
@@ -180,7 +180,7 @@ export default async function OutputPage() {
           </p>
         </Panel>
 
-        <Band id="balance-sheet">Balance sheet</Band>
+        <Band>Balance sheet</Band>
         <Panel
           title={`As at ${today}`}
           note={
@@ -261,7 +261,7 @@ export default async function OutputPage() {
           </p>
         </Panel>
 
-        <Band id="cash-flow">Cash flow</Band>
+        <Band>Cash flow</Band>
         <Panel
           title={`${fy.startDate} to ${today}, indirect method`}
           note={
@@ -335,7 +335,7 @@ export default async function OutputPage() {
           </p>
         </Panel>
 
-        <Band id="trial-balance">Trial balance</Band>
+        <Band>Trial balance</Band>
         <Panel
           title={`As at ${today}`}
           note={
@@ -402,13 +402,13 @@ export default async function OutputPage() {
           )}
         </Panel>
 
-        <Band id="sales-register">Sales register</Band>
+        <Band>Sales register</Band>
         <RegisterPanel register={sales} />
 
-        <Band id="purchase-register">Purchase register</Band>
+        <Band>Purchase register</Band>
         <RegisterPanel register={purchases} />
 
-        <Band id="bank-reconciliation">Bank reconciliation</Band>
+        <Band>Bank reconciliation</Band>
         {reconciliations.length === 0 ? (
           <Panel>
             <EmptyState title="No bank account set up">
@@ -545,7 +545,7 @@ export default async function OutputPage() {
           ))
         )}
 
-        <Band id="three-way-match">Three-way match</Band>
+        <Band>Three-way match</Band>
         {threeWay.length === 0 ? (
           <Panel>
             <EmptyState title="No purchase orders">
@@ -611,7 +611,7 @@ export default async function OutputPage() {
           </Panel>
         )}
 
-        <Band id="day-book">Day book</Band>
+        <Band>Day book</Band>
         <Panel
           title="Every posted voucher, newest first"
           note={dayBook.length > 0 ? `${dayBook.length} shown` : undefined}

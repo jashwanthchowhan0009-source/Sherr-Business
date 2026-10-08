@@ -16,21 +16,23 @@ export function PageHeader({
         <h1 className={styles.title}>{title}</h1>
         {badge}
       </div>
-      {subtitle ? <p className={styles.sub}>{subtitle}</p> : <div style={{ height: 20 }} />}
+      {subtitle ? <p className={styles.sub}>{subtitle}</p> : null}
     </>
   );
 }
 
 /**
- * The trust ribbon from docs/03-OWNER-DASHBOARD-SPEC.md §2: what can be relied on
- * in the figures below, stated as facts.
+ * The trust ribbon from docs/03-OWNER-DASHBOARD-SPEC.md §2.
+ * In Phase 1 it reports what Phase 1 actually knows: connected sources and
+ * reconciliation state arrive with the modules that produce them.
  */
 export function TrustRibbon({ items }: { items: { tone: 'ok' | 'warn' | 'crit'; node: ReactNode }[] }) {
   const toneClass = { ok: styles.dotOk, warn: styles.dotWarn, crit: styles.dotCrit };
   return (
     <div className={styles.ribbon}>
       {items.map((item, i) => (
-        <span key={i} className={styles.ribbonItem}>
+        <span key={i}>
+          {i > 0 ? <span className={styles.sep}>·</span> : null}
           <span className={`${styles.dot} ${toneClass[item.tone]}`} />
           {item.node}
         </span>

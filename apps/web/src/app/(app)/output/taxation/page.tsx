@@ -56,8 +56,8 @@ export default async function TaxationPage({
     return (
       <>
         <PageHeader
-          title="Tax & compliance"
-          subtitle={`Return workings, ${period.from} to ${period.to}. Nothing here is filed.`}
+          title="Taxation"
+          subtitle={`Return workings for ${period.from} to ${period.to}. Nothing here is filed.`}
         />
 
         <Panel
@@ -85,7 +85,7 @@ export default async function TaxationPage({
         </Panel>
 
         {/* ─── GSTR-1 ─────────────────────────────────────────────────── */}
-        <Band id="gstr-1">GSTR-1 — outward supplies</Band>
+        <Band>GSTR-1 — outward supplies</Band>
         <Panel
           title="By table"
           note="Drawn from posted sales invoices and credit notes. A credit note reduces its table rather than appearing separately, so each line is net."
@@ -197,7 +197,7 @@ export default async function TaxationPage({
         </div>
 
         {/* ─── GSTR-3B ────────────────────────────────────────────────── */}
-        <Band id="gstr-3b">GSTR-3B — summary and set-off</Band>
+        <Band>GSTR-3B — summary and set-off</Band>
         <Panel title="Liability and credit">
           <Table
             head={
@@ -341,7 +341,7 @@ export default async function TaxationPage({
         </div>
 
         {/* ─── GSTR-2B ────────────────────────────────────────────────── */}
-        <Band id="gstr-2b">GSTR-2B reconciliation</Band>
+        <Band>GSTR-2B reconciliation</Band>
         <Panel title="Upload the portal file">
           <Gstr2bUpload
             periodFrom={period.from}
@@ -430,7 +430,7 @@ export default async function TaxationPage({
         </div>
 
         {/* ─── TDS ────────────────────────────────────────────────────── */}
-        <Band id="tds">Tax deducted at source</Band>
+        <Band>Tax deducted at source</Band>
         <Panel
           title="Payable"
           note={`Deducted and not yet paid over, as at ${period.to}. Drawn from posted vouchers only.`}
@@ -518,7 +518,7 @@ export default async function TaxationPage({
         </div>
 
         {/* ─── the rule register ─────────────────────────────────────── */}
-        <Band id="rules">Tax rule register</Band>
+        <Band>Tax rule register</Band>
         <Panel
           title={unverified === 0 ? 'All rules signed off' : `${unverified} rules need a CA`}
           note="No rate, threshold, section or due date is written into the code. Each one lives here with the dates it applies between, and carries a marker until a professional has checked it."

@@ -1,80 +1,14 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   SherrByte Businesses design tokens.
+   SherrByte Business design tokens.
+   Ported from prototype/index.html and docs/04-DESIGN-SYSTEM.md, which were
+   read off the reference screens: a black canvas lit from the dock, with the
+   data surface inverted to light so numbers are the brightest thing on screen.
 
-   The working app is light: a cool-grey canvas, white working surfaces, dark
-   ink, and one deep blue that marks what is active or primary. Colour carries
-   meaning only through status (good / attention / critical) — never decoration.
-
-   The entry screens (landing, sign-in, two-factor, screen lock) keep the dark
-   canvas the brand mark was drawn for: the artwork is white thread and has no
-   body on a light surface. A page opts in with data-theme="dark" on any element,
-   and the whole document's tokens follow via :has().
+   Single-theme by intent, so `color-scheme: dark` is set on :root and there is
+   no prefers-color-scheme block. Every colour is still declared explicitly, so
+   the page never inherits a host background.
    ════════════════════════════════════════════════════════════════════════════ */
 :root {
-  color-scheme: light;
-
-  /* canvas and surfaces */
-  --sb-bg: #f3f5f8;
-  --sb-lift-1: #ffffff;
-  --sb-lift-2: #f7f9fb;
-  --sb-lift-3: #eef1f5;
-  --sb-hairline: #e1e6ed;
-  --sb-hairline-soft: #edf0f4;
-  --sb-hairline-strong: #cbd2dc;
-
-  --sb-surface: #ffffff;
-  --sb-surface-head: #f7f9fb;
-  --sb-surface-rule: #e1e6ed;
-  --sb-on-surface: #111a2c;
-  --sb-on-surface-2: #556075;
-
-  /* ink */
-  --sb-text: #111a2c;
-  --sb-text-2: #4a5468;
-  --sb-text-3: #677186;
-
-  /* the one accent */
-  --sb-accent: #1d4ed8;
-  --sb-accent-hover: #1a43bd;
-  --sb-accent-ink: #ffffff;
-  --sb-accent-tint: #edf2ff;
-  --sb-accent-soft: rgba(29, 78, 216, 0.16);
-  --sb-chart-2: #93acec;
-
-  /* status is the only place colour carries meaning */
-  --sb-verified: #18794e;
-  --sb-verified-bg: #e7f4ed;
-  --sb-provisional: #9a5800;
-  --sb-provisional-bg: #fcf1df;
-  --sb-critical: #c2302d;
-  --sb-critical-bg: #fcebea;
-  --sb-stale: #677186;
-
-  /* navigation rail */
-  --sb-nav-bg: #0e1729;
-  --sb-nav-line: rgba(255, 255, 255, 0.07);
-  --sb-nav-text: #c3cad8;
-  --sb-nav-muted: #7c869a;
-  --sb-nav-hover: rgba(255, 255, 255, 0.06);
-  --sb-nav-active: #1d4ed8;
-
-  --sb-shadow: 0 1px 2px rgba(17, 26, 44, 0.05);
-  --sb-shadow-pop: 0 12px 32px rgba(17, 26, 44, 0.14);
-
-  --sb-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --sb-font-body: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-
-  --sb-r-card: 12px;
-  --sb-r-panel: 14px;
-  --sb-r-control: 8px;
-  --sb-r-pill: 999px;
-
-  --sb-s1: 4px; --sb-s2: 8px;  --sb-s3: 12px; --sb-s4: 16px;
-  --sb-s5: 24px; --sb-s6: 32px; --sb-s7: 48px; --sb-s8: 72px;
-}
-
-/* Entry screens: the brand canvas. */
-:root:has([data-theme='dark']) {
   color-scheme: dark;
 
   --sb-bg: #000000;
@@ -83,8 +17,8 @@
   --sb-lift-3: #202026;
   --sb-hairline: rgba(255, 255, 255, 0.10);
   --sb-hairline-soft: rgba(255, 255, 255, 0.06);
-  --sb-hairline-strong: rgba(255, 255, 255, 0.22);
 
+  /* inverted data surface */
   --sb-surface: #e6e6e6;
   --sb-surface-head: #efefef;
   --sb-surface-rule: rgba(0, 0, 0, 0.20);
@@ -92,18 +26,25 @@
   --sb-on-surface-2: #585860;
 
   --sb-text: #f4f4f5;
-  --sb-text-2: #a1a1aa;
-  --sb-text-3: #7a7a84;
+  --sb-text-2: #9a9aa2;
+  --sb-text-3: #5e5e67;
 
-  --sb-accent: #4f6dff;
-  --sb-accent-hover: #6680ff;
-  --sb-accent-tint: rgba(79, 109, 255, 0.14);
-  --sb-accent-soft: rgba(79, 109, 255, 0.30);
+  --sb-accent: #3a3aff;
+  --sb-accent-soft: rgba(58, 58, 255, 0.30);
 
+  /* status is the only place colour carries meaning */
   --sb-verified: #35c97a;
-  --sb-verified-bg: rgba(53, 201, 122, 0.14);
   --sb-provisional: #f0a83c;
-  --sb-provisional-bg: rgba(240, 168, 60, 0.16);
   --sb-critical: #ff5b5f;
-  --sb-critical-bg: rgba(255, 91, 95, 0.14);
+  --sb-stale: #6b6b74;
+
+  --sb-font: "Outfit", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --sb-font-body: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --sb-r-card: 22px;
+  --sb-r-panel: 28px;
+  --sb-r-pill: 999px;
+
+  --sb-s1: 4px; --sb-s2: 8px;  --sb-s3: 12px; --sb-s4: 16px;
+  --sb-s5: 24px; --sb-s6: 32px; --sb-s7: 48px; --sb-s8: 72px;
 }

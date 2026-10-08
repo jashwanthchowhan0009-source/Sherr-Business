@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export default function SignUpPage() {
   return (
-    <main data-theme="dark" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '48px 16px' }}>
+    <main style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '48px 16px' }}>
       <div>
         <LogoLockup subtitle="Create an account" />
         <SignUp />
