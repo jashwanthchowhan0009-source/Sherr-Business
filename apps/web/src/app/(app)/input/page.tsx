@@ -27,8 +27,8 @@ export default async function InputPage() {
     return (
       <>
         <PageHeader
-          title="Input"
-          subtitle="Collect and extract — documents in, structured fields out."
+          title="Documents"
+          subtitle="Upload bills, statements and receipts."
         />
 
         <UploadPanel

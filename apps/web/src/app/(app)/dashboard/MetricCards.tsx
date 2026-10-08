@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { StatusPill, ui, type MetricStatus } from '@/components/ui';
+import { Sparkline } from '@/components/charts/Sparkline';
 import { formatCompact, formatRupees, paise } from '@/lib/money';
+import styles from './dashboard.module.css';
 
 export interface TraceRow {
   voucherId: string;
@@ -22,6 +24,12 @@ export interface Metric {
   status: MetricStatus;
   statusReason: string;
   trace: TraceRow[];
+  /** Against the comparison period; `good` colours it, null leaves it neutral. */
+  change?: { text: string; good: boolean | null; against: string } | null;
+  /** One short line under the figure, e.g. what is overdue. */
+  context?: string;
+  /** Monthly values for the trend line. */
+  spark?: number[];
 }
 
 /**
@@ -52,7 +60,7 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
 
   return (
     <>
-      <div className={ui.cards}>
+      <div className={styles.kpis}>
         {metrics.map((metric) => {
           const value = paise(BigInt(metric.valuePaise));
           const traceable = metric.trace.length > 0;
@@ -60,7 +68,7 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
             <button
               key={metric.key}
               type="button"
-              className={`${ui.card} ${ui.cardButton}`}
+              className={styles.kpi}
               onClick={() => setOpenKey(metric.key)}
               aria-label={`${metric.label}: ${formatRupees(value)}. ${
                 traceable
@@ -68,13 +76,31 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
                   : 'Show how this is worked out.'
               }`}
             >
-              <div className={ui.cardHead}>
+              <div className={styles.kpiHead}>
+                <span className={styles.kpiLabel}>{metric.label}</span>
                 <StatusPill status={metric.status}>{metric.status}</StatusPill>
               </div>
-              <div className={ui.cardBody}>
-                <div className={ui.cardLabel}>{metric.label}</div>
-                <div className={ui.cardValue}>{formatCompact(value)}</div>
-                <div className={ui.cardCaption}>{metric.caption}</div>
+              <div className={`${styles.kpiValue} tnum`}>{formatCompact(value)}</div>
+              <div className={styles.kpiFoot}>
+                <div className={styles.kpiMeta}>
+                  {metric.change ? (
+                    <span
+                      className={
+                        metric.change.good === null
+                          ? styles.changeNeutral
+                          : metric.change.good
+                            ? styles.changeGood
+                            : styles.changeBad
+                      }
+                    >
+                      {metric.change.text} <span className={styles.changeAgainst}>{metric.change.against}</span>
+                    </span>
+                  ) : null}
+                  {metric.context ? <span className={styles.kpiContext}>{metric.context}</span> : null}
+                </div>
+                {metric.spark && metric.spark.length > 1 ? (
+                  <Sparkline values={metric.spark} label={`${metric.label} by month`} />
+                ) : null}
               </div>
             </button>
           );
@@ -111,6 +137,7 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
             </header>
 
             <div className={ui.drawerBody}>
+              <p className={ui.hint}>{open.caption}</p>
               <p className={ui.hint}>{open.statusReason}</p>
 
               {open.trace.length === 0 ? (

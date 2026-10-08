@@ -71,8 +71,8 @@ export default async function ProcessPage() {
     return (
       <>
         <PageHeader
-          title="Process"
-          subtitle="Normalize, connect, validate — and record what the books must show."
+          title="Transactions"
+          subtitle="Invoices, bills, receipts, payments and journals."
         />
 
         {lockedUpto ? (
@@ -91,7 +91,7 @@ export default async function ProcessPage() {
           </Panel>
         ) : null}
 
-        <Band>Raise a sales invoice</Band>
+        <Band id="sales-invoice">Raise a sales invoice</Band>
         <Panel>
           {mayWrite ? (
             <InvoiceForm
@@ -108,7 +108,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Record a receipt</Band>
+        <Band id="receipt">Record a receipt</Band>
         <Panel>
           {can(ctx.role, 'voucher:post') ? (
             <ReceiptForm
@@ -122,7 +122,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Enter a purchase bill</Band>
+        <Band id="purchase-bill">Enter a purchase bill</Band>
         <Panel>
           {mayWrite ? (
             <PurchaseBillForm
@@ -139,7 +139,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Purchase order</Band>
+        <Band id="purchase-order">Purchase order</Band>
         <Panel>
           {can(ctx.role, 'procurement:write') ? (
             <PurchaseOrderForm
@@ -154,7 +154,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>What arrived</Band>
+        <Band id="goods-received">What arrived</Band>
         <Panel>
           {can(ctx.role, 'procurement:write') ? (
             <GoodsReceiptForm
@@ -170,7 +170,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Pay a supplier</Band>
+        <Band id="payment">Pay a supplier</Band>
         <Panel>
           {mayPost ? (
             <PaymentForm
@@ -185,7 +185,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Journal</Band>
+        <Band id="journal">Journal</Band>
         <Panel>
           {mayPost ? (
             <JournalForm
@@ -200,7 +200,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Contra — cash and bank</Band>
+        <Band id="contra">Contra — cash and bank</Band>
         <Panel>
           {mayPost ? (
             <ContraForm today={today} lockedUpto={lockedUpto} />
@@ -211,7 +211,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>
+        <Band id="bank-statement">
           Bank statement
           {bankQueue.length > 0 ? ` — ${bankQueue.length} awaiting a decision` : ''}
         </Band>
@@ -242,7 +242,7 @@ export default async function ProcessPage() {
           />
         </Panel>
 
-        <Band>{vouchers.length === 0 ? 'Vouchers' : `Vouchers — ${vouchers.length} most recent`}</Band>
+        <Band id="vouchers">{vouchers.length === 0 ? 'Vouchers' : `Vouchers — ${vouchers.length} most recent`}</Band>
         <Panel bodyless={vouchers.length > 0}>
           {vouchers.length === 0 ? (
             <div className={ui.panelBody}>
@@ -302,7 +302,7 @@ export default async function ProcessPage() {
           )}
         </Panel>
 
-        <Band>Customers and suppliers</Band>
+        <Band id="parties">Customers and suppliers</Band>
         <Panel bodyless={false}>
           {can(ctx.role, 'party:write') ? <PartyForm /> : null}
           {parties.length > 0 ? (
@@ -329,7 +329,7 @@ export default async function ProcessPage() {
           ) : null}
         </Panel>
 
-        <Band>Items</Band>
+        <Band id="items">Items</Band>
         <Panel bodyless={false}>
           {can(ctx.role, 'item:write') ? <ItemForm /> : null}
           {items.length > 0 ? (

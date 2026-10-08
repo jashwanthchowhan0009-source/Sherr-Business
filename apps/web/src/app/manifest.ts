@@ -18,8 +18,8 @@ export default function manifest(): MetadataRoute.Manifest {
       'and their CAs.',
     start_url: '/dashboard',
     display: 'standalone',
-    background_color: '#0a0a0c',
-    theme_color: '#000000',
+    background_color: '#f3f5f8',
+    theme_color: '#0e1729',
     icons: [
       { src: '/brand/glyph.png', sizes: '256x256', type: 'image/png', purpose: 'any' },
       { src: '/brand/icon-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },

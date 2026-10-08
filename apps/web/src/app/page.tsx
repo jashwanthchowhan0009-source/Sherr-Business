@@ -13,7 +13,7 @@ export default async function LandingPage({
   const configured = clerkConfigured();
 
   return (
-    <main style={{ maxWidth: 860, margin: '0 auto', padding: '14vh 16px 64px' }}>
+    <main data-theme="dark" style={{ maxWidth: 860, margin: '0 auto', padding: '14vh 16px 64px' }}>
       <div className={brand.hero}>
         <div className={brand.heroMark}>
           {/* Above the fold and the largest thing on the page, so it loads

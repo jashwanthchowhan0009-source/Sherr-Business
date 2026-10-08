@@ -549,7 +549,15 @@ export interface Dashboard {
   unlinkedDocumentCount: number;
   lockedUpto: string | null;
   lastPostedAt: string | null;
+  /** The pieces the figures were built from, so a caller need not query them again. */
+  statements: FinancialStatements;
+  receivable: Ageing;
+  payable: Ageing;
+  sales: Register;
+  purchases: Register;
 }
+
+export type Ageing = Awaited<ReturnType<typeof getAgeing>>;
 
 /**
  * The owner dashboard.
@@ -579,7 +587,7 @@ export async function getDashboard(
   const net = (code: string) =>
     trialBalance.rows.find((r) => r.code === code)?.netPaise ?? 0n;
 
-  const counts = await withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
+  const countsQuery = withTenant({ orgId: ctx.orgId, userId: ctx.userId }, async (tx) => {
     const { rows } = await tx.execute<{
       posted: string;
       drafts: string;
@@ -599,8 +607,16 @@ export async function getDashboard(
     return rows[0];
   });
 
-  const sales = await getRegister(ctx, { kind: 'sales', from: input.from, to: input.asOf });
-  const purchases = await getRegister(ctx, { kind: 'purchase', from: input.from, to: input.asOf });
+  // Independent reads, so they go together rather than one after another.
+  // Profit needs the statements, because it depends on closing stock having
+  // been entered: purchases are expensed as made, so a trading company shows a
+  // loss until the stock it still holds is recognised.
+  const [counts, sales, purchases, statements] = await Promise.all([
+    countsQuery,
+    getRegister(ctx, { kind: 'sales', from: input.from, to: input.asOf }),
+    getRegister(ctx, { kind: 'purchase', from: input.from, to: input.asOf }),
+    getFinancialStatements(ctx, { from: input.from, to: input.asOf }),
+  ]);
 
   const traceOf = (register: Register): TraceRow[] =>
     register.rows.map((r) => ({
@@ -620,11 +636,6 @@ export async function getDashboard(
   const closedReason = periodClosed
     ? `The books are locked to ${lockedUpto}, so this cannot change.`
     : 'The period is still open, so this can change until the books are closed.';
-
-  // Profit needs the statements, because it depends on closing stock having
-  // been entered: purchases are expensed as made, so a trading company shows a
-  // loss until the stock it still holds is recognised.
-  const statements = await getFinancialStatements(ctx, { from: input.from, to: input.asOf });
 
   const metrics: DashboardMetric[] = [
     {
@@ -747,6 +758,11 @@ export async function getDashboard(
     unlinkedDocumentCount: Number(counts?.unlinked ?? 0),
     lockedUpto,
     lastPostedAt: counts?.last_posted_at ?? null,
+    statements,
+    receivable,
+    payable,
+    sales,
+    purchases,
   };
 }
 

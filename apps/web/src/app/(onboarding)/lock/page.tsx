@@ -36,7 +36,7 @@ export default async function LockPage({
   const reverify = mode === 'reset' ? await reverifyState() : ({ fresh: false, reason: 'stale' } as const);
 
   return (
-    <main style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '40px 16px' }}>
+    <main data-theme="dark" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: '40px 16px' }}>
       <PinPad
         mode={mode}
         lockedOut={locked}

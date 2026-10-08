@@ -2,14 +2,24 @@ import type { ReactNode } from 'react';
 import styles from './ui.module.css';
 
 export function Panel({
-  title, note, children, bodyless,
-}: { title?: string; note?: string; children: ReactNode; bodyless?: boolean }) {
+  title, note, children, bodyless, id, action,
+}: {
+  title?: string;
+  note?: string;
+  children: ReactNode;
+  bodyless?: boolean;
+  /** Anchor for deep links from the navigation. */
+  id?: string;
+  /** A control at the right of the header, e.g. a filter or a link. */
+  action?: ReactNode;
+}) {
   return (
-    <section className={styles.panel}>
+    <section className={styles.panel} id={id}>
       {title ? (
         <header className={styles.panelHead}>
           <h2 className={styles.panelTitle}>{title}</h2>
           {note ? <span className={styles.panelNote}>{note}</span> : null}
+          {action ? <div className={styles.panelAction}>{action}</div> : null}
         </header>
       ) : null}
       {bodyless ? children : <div className={styles.panelBody}>{children}</div>}
@@ -17,8 +27,13 @@ export function Panel({
   );
 }
 
-export function Band({ children }: { children: ReactNode }) {
-  return <div className={styles.band}>{children}</div>;
+/** A section heading. `id` makes it a target for the navigation's deep links. */
+export function Band({ children, id }: { children: ReactNode; id?: string }) {
+  return (
+    <h2 className={styles.band} id={id}>
+      {children}
+    </h2>
+  );
 }
 
 export type MetricStatus = 'verified' | 'provisional' | 'draft';

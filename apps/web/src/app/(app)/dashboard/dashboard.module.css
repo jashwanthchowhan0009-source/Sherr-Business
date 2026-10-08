@@ -1,0 +1,155 @@
+/* ── layout ───────────────────────────────────────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.span12 { grid-column: span 12; }
+.span8 { grid-column: span 8; }
+.span6 { grid-column: span 6; }
+.span4 { grid-column: span 4; }
+.span4 > section, .span6 > section, .span8 > section { height: 100%; }
+
+@media (max-width: 1199px) {
+  .span8, .span4 { grid-column: span 12; }
+}
+/* Phone: one column, reordered by what an owner checks first. */
+@media (max-width: 767px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .span12, .span8, .span6, .span4 { grid-column: 1; }
+  .oAttention { order: 1; }
+  .oKpis { order: 2; }
+  .oCash { order: 3; }
+  .oProfit { order: 4; }
+  .oReceivables { order: 5; }
+  .oActivity { order: 6; }
+  .oPayables { order: 7; }
+  .oPerformance { order: 8; }
+  .oIntel { order: 9; }
+  .oSales { order: 10; }
+  .oExpenses { order: 11; }
+  .oInventory { order: 12; }
+  .oAgeing { order: 13; }
+}
+
+/* ── KPI cards ────────────────────────────────────────────────────────────── */
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1279px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+
+.kpi {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left;
+  padding: 14px 16px 12px; border-radius: var(--sb-r-card);
+  background: var(--sb-lift-1); border: 1px solid var(--sb-hairline); box-shadow: var(--sb-shadow);
+  transition: border-color .12s;
+}
+.kpi:hover { border-color: var(--sb-hairline-strong); }
+.kpiHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kpiLabel { font-size: 13px; color: var(--sb-text-2); font-weight: 500; }
+.kpiValue {
+  font-size: clamp(22px, 2.2vw, 28px); font-weight: 600; letter-spacing: -.02em;
+  line-height: 1.15; color: var(--sb-text);
+}
+.kpiFoot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; min-height: 30px; }
+.kpiMeta { display: grid; gap: 2px; font-size: 12.5px; min-width: 0; }
+.kpiContext { color: var(--sb-text-3); }
+.changeGood { color: var(--sb-verified); font-weight: 500; }
+.changeBad { color: var(--sb-critical); font-weight: 500; }
+.changeNeutral { color: var(--sb-text-2); font-weight: 500; }
+.changeAgainst { color: var(--sb-text-3); font-weight: 400; }
+
+/* ── needs attention ──────────────────────────────────────────────────────── */
+.attention { list-style: none; margin: 0; padding: 4px 0; }
+.attentionItem {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  padding: 11px 20px; border-bottom: 1px solid var(--sb-hairline-soft);
+}
+.attentionItem:last-child { border-bottom: 0; }
+.toneCrit { color: var(--sb-critical); margin-top: 2px; }
+.toneWarn { color: var(--sb-provisional); margin-top: 2px; }
+.attentionText { min-width: 0; }
+.attentionTitle { font-size: 13.5px; font-weight: 500; color: var(--sb-text); overflow-wrap: anywhere; }
+.attentionDetail { font-size: 12.5px; color: var(--sb-text-3); }
+.attentionAction {
+  font-size: 12.5px; font-weight: 500; color: var(--sb-accent); text-decoration: none; white-space: nowrap;
+  padding: 2px 0;
+}
+.attentionAction:hover { text-decoration: underline; }
+.allClear { display: flex; align-items: center; gap: 10px; padding: 28px 20px; color: var(--sb-verified); font-size: 14px; }
+
+/* ── stats and lists ──────────────────────────────────────────────────────── */
+.statRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px 16px; margin-bottom: 16px; }
+.stat { min-width: 0; }
+.statLabel { font-size: 12.5px; color: var(--sb-text-3); }
+.statValue { font-size: 18px; font-weight: 600; letter-spacing: -.01em; color: var(--sb-text); }
+.statBad { color: var(--sb-critical); }
+.statSub { font-size: 12px; color: var(--sb-text-3); }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 560px) { .split { grid-template-columns: 1fr; } }
+.rankedTitle { font-size: 12.5px; font-weight: 500; color: var(--sb-text-2); margin-bottom: 6px; }
+.ranked { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ranked li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--sb-text); }
+.rankedName { position: relative; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 4px; }
+.rankedBar { position: absolute; left: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--sb-chart-2); }
+
+.trend { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--sb-hairline-soft); }
+
+.dueList { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--sb-hairline-soft); }
+.dueList li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: baseline;
+  padding: 8px 0; border-bottom: 1px solid var(--sb-hairline-soft); font-size: 13px;
+}
+.dueList a { color: var(--sb-accent); text-decoration: none; font-weight: 500; }
+.dueParty { color: var(--sb-text-3); }
+.dueLate { color: var(--sb-critical); font-size: 12px; }
+
+.panelLink { font-size: 12.5px; color: var(--sb-accent); text-decoration: none; font-weight: 500; }
+.panelLink:hover { text-decoration: underline; }
+
+.anomaly {
+  display: flex; align-items: center; gap: 6px; margin: -4px 0 14px;
+  font-size: 12.5px; color: var(--sb-provisional);
+}
+
+/* ── profitability ────────────────────────────────────────────────────────── */
+.profit { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.profitRow { display: grid; grid-template-columns: 150px minmax(0, 1fr) 72px 40px; gap: 12px; align-items: center; font-size: 13px; }
+@media (max-width: 480px) { .profitRow { grid-template-columns: 110px minmax(0, 1fr) 64px 34px; gap: 8px; } }
+.profitLabel { color: var(--sb-text-2); }
+.profitTrack { height: 10px; background: var(--sb-lift-3); border-radius: 3px; overflow: hidden; }
+.profitBar, .profitBarCost, .profitBarNeg { display: block; height: 100%; border-radius: 3px; }
+.profitBar { background: var(--sb-accent); }
+.profitBarCost { background: var(--sb-chart-2); }
+.profitBarNeg { background: var(--sb-critical); }
+.profitValue { text-align: right; font-weight: 500; color: var(--sb-text); }
+.profitMargin { text-align: right; color: var(--sb-text-3); font-size: 12px; }
+
+/* ── intelligence ─────────────────────────────────────────────────────────── */
+.insights { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.insight {
+  padding: 16px 20px; border-bottom: 1px solid var(--sb-hairline-soft); border-right: 1px solid var(--sb-hairline-soft);
+  display: grid; gap: 4px; align-content: start;
+}
+.insightTitle { font-size: 14px; font-weight: 600; color: var(--sb-text); }
+.insightWhy { font-size: 13px; color: var(--sb-text-2); }
+.insightAction { font-size: 12.5px; font-weight: 500; color: var(--sb-accent); text-decoration: none; margin-top: 4px; }
+.insightAction:hover { text-decoration: underline; }
+.quiet { padding: 24px 20px; margin: 0; font-size: 13.5px; color: var(--sb-text-3); }
+
+/* ── activity ─────────────────────────────────────────────────────────────── */
+.activity { list-style: none; margin: 0; padding: 6px 0; }
+.activityItem { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 8px 20px; }
+.activityIcon { color: var(--sb-text-3); margin-top: 2px; }
+.activityTitle { font-size: 13px; color: var(--sb-text); overflow-wrap: anywhere; }
+.activityDetail { color: var(--sb-text-3); }
+.activityMeta { font-size: 12px; color: var(--sb-text-3); overflow-wrap: anywhere; }
+
+/* ── inventory and ageing ─────────────────────────────────────────────────── */
+.inventory { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }
+@media (max-width: 767px) { .inventory { grid-template-columns: 1fr; } }
+
+.ageing {
+  background: var(--sb-lift-1); border: 1px solid var(--sb-hairline); border-radius: var(--sb-r-panel);
+  box-shadow: var(--sb-shadow);
+}
+.ageing summary {
+  cursor: pointer; padding: 14px 20px; font-size: 14px; font-weight: 600; list-style-position: inside;
+}
+.ageingBody { padding: 0 20px 20px; display: grid; gap: 20px; }
